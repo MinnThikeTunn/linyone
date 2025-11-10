@@ -214,55 +214,71 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { success: false, error: 'Registration failed' }
       }
 
-      // Create user profile in custom users table
-      const { data: profile, error: profileError } = await supabase
+      // Prefer relying on DB trigger to create profile; otherwise poll-read then upsert
+      // 1) Try to read existing profile (created by trigger)
+      let { data: profile } = await supabase
         .from('users')
-        .insert({
-          id: authData.user.id,
-          email: authData.user.email,
-          name: userData.name || authData.user.email?.split('@')[0] || 'User',
-          phone: userData.phone || null,
-          role: userData.role || 'user',
-          organization_id: userData.organizationId || null,
-        })
-        .select()
+        .select('*')
+        .eq('id', authData.user.id)
         .single()
 
-      if (profileError) {
-        // Log the full error for debugging
-        console.error('Error creating user profile:', {
-          error: profileError,
-          code: profileError.code,
-          message: profileError.message,
-          details: profileError.details,
-          hint: profileError.hint
-        })
-        
-        // Check for common errors
-        const errorMessage = profileError.message || ''
-        const errorCode = profileError.code || ''
-        
-        // If the table doesn't exist
-        if (errorCode === '42P01' || errorMessage.includes('does not exist') || errorMessage.includes('relation') || errorMessage.includes('table')) {
-          return { 
-            success: false, 
-            error: 'Database table not found. Please run the Supabase migration SQL first. See SUPABASE_SETUP.md for instructions.' 
+      // 2) If not present yet, wait briefly and retry (auth/session propagation)
+      if (!profile) {
+        await new Promise(r => setTimeout(r, 400))
+        const retry = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', authData.user.id)
+          .single()
+        profile = retry.data || null
+      }
+
+      // 3) If still missing, upsert minimally (requires RLS insert policy)
+      if (!profile) {
+        const upsertRes = await supabase
+          .from('users')
+          .upsert({
+            id: authData.user.id,
+            email: authData.user.email,
+            name: userData.name || authData.user.email?.split('@')[0] || 'User',
+            phone: userData.phone || null,
+            role: userData.role || 'user',
+            organization_id: userData.organizationId || null,
+          })
+          .select()
+          .single()
+
+        if (upsertRes.error) {
+          // Log full details and surface concise message
+          console.error('Error creating user profile (upsert):', {
+            error: upsertRes.error,
+            code: upsertRes.error.code,
+            message: upsertRes.error.message,
+            details: upsertRes.error.details,
+            hint: upsertRes.error.hint
+          })
+
+          const msg = upsertRes.error.message || ''
+          const code = upsertRes.error.code || ''
+
+          if (code === '42501' || msg.includes('permission denied') || msg.includes('row-level security')) {
+            return {
+              success: false,
+              error: 'Permission denied by RLS. Ensure insert/select policies allow the authenticated user.'
+            }
           }
-        }
-        
-        // If RLS policy violation
-        if (errorCode === '42501' || errorMessage.includes('permission denied') || errorMessage.includes('row-level security')) {
-          return { 
-            success: false, 
-            error: 'Permission denied. Please check your Supabase Row Level Security policies.' 
+
+          if (code === '42P01' || msg.includes('relation') || msg.includes('does not exist')) {
+            return {
+              success: false,
+              error: 'Database table not found. Please run the Supabase migration SQL first. See SUPABASE_SETUP.md.'
+            }
           }
+
+          return { success: false, error: 'Failed to create user profile. Please try again.' }
         }
-        
-        // For other errors, return a user-friendly message
-        return { 
-          success: false, 
-          error: profileError.message || 'Failed to create user profile. Please try again or contact support.' 
-        }
+
+        profile = upsertRes.data
       }
 
       if (profile) {
