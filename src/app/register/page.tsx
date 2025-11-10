@@ -8,13 +8,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
 import { 
   UserPlus, 
-  Shield, 
-  Users, 
-  Building, 
   AlertTriangle,
   Eye,
   EyeOff,
@@ -34,8 +30,6 @@ export default function RegisterPage() {
     phone: '',
     password: '',
     confirmPassword: '',
-    role: 'user' as 'user' | 'tracking_volunteer' | 'supply_volunteer',
-    organizationId: '',
     agreeToTerms: false
   })
   const [showPassword, setShowPassword] = useState(false)
@@ -60,9 +54,7 @@ export default function RegisterPage() {
       name: registerForm.name,
       email: registerForm.email,
       phone: registerForm.phone,
-      password: registerForm.password,
-      role: registerForm.role,
-      organizationId: registerForm.organizationId || undefined
+      password: registerForm.password
     })
     
     if (result.success) {
@@ -76,13 +68,6 @@ export default function RegisterPage() {
     setRegisterForm(prev => ({
       ...prev,
       [e.target.name]: e.target.value
-    }))
-  }
-
-  const handleRoleChange = (value: string) => {
-    setRegisterForm(prev => ({
-      ...prev,
-      role: value as 'user' | 'tracking_volunteer' | 'supply_volunteer'
     }))
   }
 
@@ -163,55 +148,9 @@ export default function RegisterPage() {
                     required
                   />
                 </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="role">{t('auth.role')}</Label>
-                  <Select value={registerForm.role} onValueChange={handleRoleChange}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="user">
-                        <div className="flex items-center gap-2">
-                          <Users className="w-4 h-4" />
-                          {t('auth.user')}
-                        </div>
-                      </SelectItem>
-                      <SelectItem value="tracking_volunteer">
-                        <div className="flex items-center gap-2">
-                          <Shield className="w-4 h-4" />
-                          {t('auth.trackingVolunteer')}
-                        </div>
-                      </SelectItem>
-                      <SelectItem value="supply_volunteer">
-                        <div className="flex items-center gap-2">
-                          <Building className="w-4 h-4" />
-                          {t('auth.supplyVolunteer')}
-                        </div>
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
               </div>
               
-              {/* Organization selection for volunteers */}
-              {(registerForm.role === 'tracking_volunteer' || registerForm.role === 'supply_volunteer') && (
-                <div className="space-y-2">
-                  <Label htmlFor="organization">{t('auth.selectOrganization')}</Label>
-                  <Select value={registerForm.organizationId} onValueChange={(value) => setRegisterForm(prev => ({ ...prev, organizationId: value }))}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select an organization" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {organizations.map((org) => (
-                        <SelectItem key={org.id} value={org.id}>
-                          {org.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
+              {/* Removed role-based organization selection */}
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -308,45 +247,7 @@ export default function RegisterPage() {
           </CardContent>
         </Card>
 
-        {/* Role Information */}
-        <Card className="mt-6">
-          <CardHeader>
-            <CardTitle className="text-sm">Role Information</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3 text-sm">
-              <div className="p-3 bg-blue-50 rounded-lg">
-                <div className="flex items-center gap-2 font-medium text-blue-800">
-                  <Users className="w-4 h-4" />
-                  {t('auth.user')}
-                </div>
-                <div className="text-blue-700 mt-1">
-                  Access to map view, family locator, and safety learning modules
-                </div>
-              </div>
-              
-              <div className="p-3 bg-green-50 rounded-lg">
-                <div className="flex items-center gap-2 font-medium text-green-800">
-                  <Shield className="w-4 h-4" />
-                  {t('auth.trackingVolunteer')}
-                </div>
-                <div className="text-green-700 mt-1">
-                  Verify and manage reported areas, confirm pins from users
-                </div>
-              </div>
-              
-              <div className="p-3 bg-orange-50 rounded-lg">
-                <div className="flex items-center gap-2 font-medium text-orange-800">
-                  <Building className="w-4 h-4" />
-                  {t('auth.supplyVolunteer')}
-                </div>
-                <div className="text-orange-700 mt-1">
-                  Deliver supplies to affected areas and mark completion
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        {/* Removed Role Information section */}
       </div>
     </div>
   )
