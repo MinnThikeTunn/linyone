@@ -17,6 +17,7 @@ create table organizations (
   name text not null,
   email text not null,
   phone text not null,
+  password text not null,
   address text,
   is_verified boolean default false,
   created_at timestamptz default now()

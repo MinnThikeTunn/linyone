@@ -1,7 +1,7 @@
 'use client'
 
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
-import { loginUser, registerUser } from '@/services/auth'
+import { loginOrganization, loginUser, registerOrganization, registerUser } from '@/services/auth'
 
 interface User {
   id: string
@@ -14,16 +14,20 @@ interface AuthContextType {
   user: User | null
   isAuthenticated: boolean
   isLoading: boolean
-  login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>
+  login: (email: string, password: string, accountType: AccountType) => Promise<{ success: boolean; error?: string }>
   register: (userData: RegisterData) => Promise<{ success: boolean; error?: string }>
   logout: () => Promise<void>
 }
 
+type AccountType = 'user' | 'organization'
+
 interface RegisterData {
+  accountType: AccountType
   name: string
   email: string
   phone: string
   password: string
+  address?: string
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -37,11 +41,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(false)
   }, [])
 
-  const login = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
+  const login = async (email: string, password: string, accountType: AccountType): Promise<{ success: boolean; error?: string }> => {
     setIsLoading(true)
     
     try {
-      const result = await loginUser(email, password)
+      const result = accountType === 'organization'
+        ? await loginOrganization(email, password)
+        : await loginUser(email, password)
       if (!result.success || !result.user) {
         return { success: false, error: result.error || 'Invalid credentials' }
       }
@@ -66,12 +72,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(true)
     
     try {
-      const result = await registerUser({
-        name: userData.name,
-        email: userData.email,
-        phone: userData.phone,
-        password: userData.password,
-      })
+      const result =
+        userData.accountType === 'organization'
+          ? await registerOrganization({
+              name: userData.name,
+              email: userData.email,
+              phone: userData.phone,
+              password: userData.password,
+              address: userData.address,
+            })
+          : await registerUser({
+              name: userData.name,
+              email: userData.email,
+              phone: userData.phone,
+              password: userData.password,
+            })
 
       if (!result.success || !result.user) {
         return { success: false, error: result.error || 'Registration failed' }

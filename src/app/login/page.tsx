@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { 
   LogIn, 
   UserPlus, 
@@ -27,7 +28,9 @@ export default function LoginPage() {
   const { login, isLoading } = useAuth()
   const router = useRouter()
   
+  type AccountType = 'user' | 'organization'
   const [loginForm, setLoginForm] = useState({
+    accountType: 'user' as AccountType,
     email: '',
     password: ''
   })
@@ -38,7 +41,7 @@ export default function LoginPage() {
     e.preventDefault()
     setError('')
     
-    const result = await login(loginForm.email, loginForm.password)
+    const result = await login(loginForm.email, loginForm.password, loginForm.accountType)
     
     if (result.success) {
       router.push('/')
@@ -52,6 +55,10 @@ export default function LoginPage() {
       ...prev,
       [e.target.name]: e.target.value
     }))
+  }
+  const handleAccountTypeChange = (value: AccountType | string) => {
+    if (!value) return
+    setLoginForm(prev => ({ ...prev, accountType: value as AccountType }))
   }
 
   return (
@@ -83,15 +90,38 @@ export default function LoginPage() {
                 </Alert>
               )}
               
+              <div className="flex flex-col gap-2">
+                <Label>{t('auth.accountType') ?? 'Account Type'}</Label>
+                <ToggleGroup
+                  type="single"
+                  value={loginForm.accountType}
+                  onValueChange={handleAccountTypeChange}
+                  className="w-full"
+                >
+                  <ToggleGroupItem value="user" className="flex-1">
+                    <div className="flex flex-col items-center gap-1 py-1">
+                      <span className="text-sm font-medium">User</span>
+                    </div>
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="organization" className="flex-1">
+                    <div className="flex flex-col items-center gap-1 py-1">
+                      <span className="text-sm font-medium">Organization</span>
+                    </div>
+                  </ToggleGroupItem>
+                </ToggleGroup>
+              </div>
+              
               <div className="space-y-2">
-                <Label htmlFor="email">{t('auth.email')} / Username</Label>
+                <Label htmlFor="email">
+                  {t('auth.email')}
+                </Label>
                 <Input
                   id="email"
                   name="email"
                   type="text"
                   value={loginForm.email}
                   onChange={handleInputChange}
-                  placeholder="Enter email or username"
+                  placeholder="Enter email"
                   required
                 />
               </div>
