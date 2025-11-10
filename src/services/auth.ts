@@ -77,4 +77,71 @@ export async function loginUser(email: string, password: string): Promise<LoginR
   }
 }
 
+export async function loginOrganization(email: string, password: string): Promise<LoginResult> {
+  const { data, error } = await supabase
+    .from('organizations')
+    .select('*')
+    .eq('email', email)
+    .eq('password', password)
+    .single()
+
+  if (error) {
+    return { success: false, error: 'Invalid credentials' }
+  }
+
+  if (!data) {
+    return { success: false, error: 'Invalid credentials' }
+  }
+
+  return {
+    success: true,
+    user: {
+      id: data.id,
+      name: data.name,
+      email: data.email ?? '',
+      phone: data.phone ?? undefined,
+    },
+  }
+}
+
+export interface RegisterOrganizationInput {
+  name: string
+  email: string
+  phone: string
+  password: string
+  address?: string
+}
+
+export async function registerOrganization(input: RegisterOrganizationInput): Promise<LoginResult> {
+  const { data, error } = await supabase
+    .from('organizations')
+    .insert({
+      name: input.name,
+      email: input.email,
+      phone: input.phone,
+      password: input.password,
+      address: input.address ?? null,
+    })
+    .select('*')
+    .single()
+
+  if (error) {
+    return { success: false, error: error.message }
+  }
+
+  if (!data) {
+    return { success: false, error: 'Registration failed' }
+  }
+
+  return {
+    success: true,
+    user: {
+      id: data.id,
+      name: data.name,
+      email: data.email ?? '',
+      phone: data.phone ?? undefined,
+    },
+  }
+}
+
 

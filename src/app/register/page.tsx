@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Checkbox } from '@/components/ui/checkbox'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { 
   UserPlus, 
   AlertTriangle,
@@ -19,15 +20,30 @@ import {
 import { useLanguage } from '@/hooks/use-language'
 import { useAuth } from '@/hooks/use-auth'
 
+type AccountType = 'user' | 'organization'
+
+interface RegisterFormState {
+  accountType: AccountType
+  name: string
+  email: string
+  phone: string
+  address: string
+  password: string
+  confirmPassword: string
+  agreeToTerms: boolean
+}
+
 export default function RegisterPage() {
   const { t } = useLanguage()
   const { register, isLoading } = useAuth()
   const router = useRouter()
   
-  const [registerForm, setRegisterForm] = useState({
+  const [registerForm, setRegisterForm] = useState<RegisterFormState>({
+    accountType: 'user',
     name: '',
     email: '',
     phone: '',
+    address: '',
     password: '',
     confirmPassword: '',
     agreeToTerms: false
@@ -51,10 +67,12 @@ export default function RegisterPage() {
     }
     
     const result = await register({
+      accountType: registerForm.accountType,
       name: registerForm.name,
       email: registerForm.email,
       phone: registerForm.phone,
-      password: registerForm.password
+      password: registerForm.password,
+      address: registerForm.accountType === 'organization' ? registerForm.address : undefined
     })
     
     if (result.success) {
@@ -71,12 +89,15 @@ export default function RegisterPage() {
     }))
   }
 
-  // Mock organizations for demo
-  const organizations = [
-    { id: 'org1', name: 'Rescue Team A' },
-    { id: 'org2', name: 'Medical Response B' },
-    { id: 'org3', name: 'Supply Chain C' }
-  ]
+  const handleAccountTypeChange = (value: AccountType | string) => {
+    if (!value) {
+      return
+    }
+    setRegisterForm(prev => ({
+      ...prev,
+      accountType: value as AccountType
+    }))
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-green-50 flex items-center justify-center p-4">
@@ -107,9 +128,38 @@ export default function RegisterPage() {
                 </Alert>
               )}
               
+              <div className="flex flex-col gap-2">
+                <Label>{t('auth.accountType') ?? 'Account Type'}</Label>
+                <ToggleGroup
+                  type="single"
+                  value={registerForm.accountType}
+                  onValueChange={handleAccountTypeChange}
+                  className="w-full"
+                >
+                  <ToggleGroupItem value="user" className="flex-1">
+                    <div className="flex flex-col items-center gap-1 py-1">
+                      <span className="text-sm font-medium">User</span>
+                      <span className="text-xs text-muted-foreground text-center">
+                        Access donation and reporting tools
+                      </span>
+                    </div>
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="organization" className="flex-1">
+                    <div className="flex flex-col items-center gap-1 py-1">
+                      <span className="text-sm font-medium">Organization</span>
+                      <span className="text-xs text-muted-foreground text-center">
+                        Manage response teams and resources
+                      </span>
+                    </div>
+                  </ToggleGroupItem>
+                </ToggleGroup>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="name">{t('auth.name')}</Label>
+                  <Label htmlFor="name">
+                    {registerForm.accountType === 'organization' ? 'Organization Name' : t('auth.name')}
+                  </Label>
                   <Input
                     id="name"
                     name="name"
@@ -137,17 +187,38 @@ export default function RegisterPage() {
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="phone">{t('auth.phone')}</Label>
+                  <Label htmlFor="phone">
+                    {registerForm.accountType === 'organization' ? 'Organization Phone' : t('auth.phone')}
+                  </Label>
                   <Input
                     id="phone"
                     name="phone"
                     type="tel"
                     value={registerForm.phone}
                     onChange={handleInputChange}
-                    placeholder="Enter your phone number"
+                    placeholder={
+                      registerForm.accountType === 'organization'
+                        ? 'Enter organization contact number'
+                        : 'Enter your phone number'
+                    }
                     required
                   />
                 </div>
+
+                {registerForm.accountType === 'organization' && (
+                  <div className="space-y-2">
+                    <Label htmlFor="address">Organization Address</Label>
+                    <Input
+                      id="address"
+                      name="address"
+                      type="text"
+                      value={registerForm.address}
+                      onChange={handleInputChange}
+                      placeholder="Enter organization address"
+                      required
+                    />
+                  </div>
+                )}
               </div>
               
               {/* Removed role-based organization selection */}
