@@ -1,6 +1,7 @@
 'use client'
 
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
+import { supabase } from '@/lib/supabase'
 
 interface User {
   id: string
@@ -32,78 +33,163 @@ interface RegisterData {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
-// Mock user data for demonstration
-const mockUsers = [
-  {
-    id: '1',
-    name: 'Admin User',
-    email: 'admin',
-    password: 'admin123',
-    role: 'admin' as const,
-    image: '/avatars/admin.jpg'
-  },
-  {
-    id: '2',
-    name: 'Organization A',
-    email: 'orgA',
-    password: 'org123',
-    role: 'organization' as const,
-    image: '/avatars/org.jpg'
-  }
-]
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
-    // Check for saved session on mount
-    const savedUser = localStorage.getItem('user')
-    if (savedUser) {
+    // Check for existing session on mount
+    const checkSession = async () => {
       try {
-        const parsedUser = JSON.parse(savedUser)
-        setUser(parsedUser)
+        const { data: { session } } = await supabase.auth.getSession()
+        
+        if (session?.user) {
+          // Get user profile from custom users table
+          const { data: profile } = await supabase
+            .from('users')
+            .select('*')
+            .eq('id', session.user.id)
+            .single()
+
+          if (profile) {
+            setUser({
+              id: session.user.id,
+              email: session.user.email || '',
+              name: profile.name || session.user.email?.split('@')[0] || 'User',
+              role: profile.role || 'user',
+              phone: profile.phone,
+              organizationId: profile.organization_id,
+              image: profile.image,
+            })
+          } else {
+            // If profile doesn't exist, create a basic one
+            const { data: newProfile } = await supabase
+              .from('users')
+              .insert({
+                id: session.user.id,
+                email: session.user.email,
+                name: session.user.email?.split('@')[0] || 'User',
+                role: 'user',
+              })
+              .select()
+              .single()
+
+            if (newProfile) {
+              setUser({
+                id: session.user.id,
+                email: session.user.email || '',
+                name: newProfile.name || session.user.email?.split('@')[0] || 'User',
+                role: newProfile.role || 'user',
+                phone: newProfile.phone,
+                organizationId: newProfile.organization_id,
+                image: newProfile.image,
+              })
+            }
+          }
+        }
       } catch (error) {
-        console.error('Error parsing saved user:', error)
-        localStorage.removeItem('user')
+        console.error('Error checking session:', error)
+      } finally {
+        setIsLoading(false)
       }
     }
-    setIsLoading(false)
+
+    checkSession()
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_IN' && session?.user) {
+        // Get user profile
+        const { data: profile } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', session.user.id)
+          .single()
+
+        if (profile) {
+          setUser({
+            id: session.user.id,
+            email: session.user.email || '',
+            name: profile.name || session.user.email?.split('@')[0] || 'User',
+            role: profile.role || 'user',
+            phone: profile.phone,
+            organizationId: profile.organization_id,
+            image: profile.image,
+          })
+        }
+      } else if (event === 'SIGNED_OUT') {
+        setUser(null)
+      }
+    })
+
+    return () => {
+      subscription.unsubscribe()
+    }
   }, [])
 
   const login = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
     setIsLoading(true)
     
     try {
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      
-      // Check mock users first
-      const mockUser = mockUsers.find(u => u.email === email && u.password === password)
-      if (mockUser) {
-        const { password: _, ...userWithoutPassword } = mockUser
-        setUser(userWithoutPassword)
-        localStorage.setItem('user', JSON.stringify(userWithoutPassword))
-        return { success: true }
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      })
+
+      if (error) {
+        return { success: false, error: error.message }
       }
-      
-      // For demo purposes, create a test user if credentials don't match mock users
-      if (email && password) {
-        const testUser: User = {
-          id: 'test-' + Date.now(),
-          name: email.split('@')[0],
-          email: email,
-          phone: '+95123456789',
-          role: 'user',
-          image: '/avatars/user.jpg'
+
+      if (!data.user) {
+        return { success: false, error: 'Authentication failed' }
+      }
+
+      // Get user profile
+      const { data: profile } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', data.user.id)
+        .single()
+
+      // If profile doesn't exist, create a basic one
+      if (!profile) {
+        const { data: newProfile } = await supabase
+          .from('users')
+          .insert({
+            id: data.user.id,
+            email: data.user.email,
+            name: data.user.email?.split('@')[0] || 'User',
+            role: 'user',
+          })
+          .select()
+          .single()
+
+        if (newProfile) {
+          setUser({
+            id: data.user.id,
+            email: data.user.email || '',
+            name: newProfile.name || data.user.email?.split('@')[0] || 'User',
+            role: newProfile.role || 'user',
+            phone: newProfile.phone,
+            organizationId: newProfile.organization_id,
+            image: newProfile.image,
+          })
         }
-        setUser(testUser)
-        localStorage.setItem('user', JSON.stringify(testUser))
-        return { success: true }
+      } else {
+        setUser({
+          id: data.user.id,
+          email: data.user.email || '',
+          name: profile.name || data.user.email?.split('@')[0] || 'User',
+          role: profile.role || 'user',
+          phone: profile.phone,
+          organizationId: profile.organization_id,
+          image: profile.image,
+        })
       }
-      
-      return { success: false, error: 'Invalid credentials' }
+
+      return { success: true }
     } catch (error) {
+      console.error('Login error:', error)
       return { success: false, error: 'Login failed' }
     } finally {
       setIsLoading(false)
@@ -114,24 +200,86 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(true)
     
     try {
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      
-      // For demo purposes, always succeed
-      const newUser: User = {
-        id: 'user-' + Date.now(),
-        name: userData.name,
+      // Sign up with Supabase Auth
+      const { data: authData, error: authError } = await supabase.auth.signUp({
         email: userData.email,
-        phone: userData.phone,
-        role: userData.role,
-        organizationId: userData.organizationId,
-        image: '/avatars/user.jpg'
+        password: userData.password,
+      })
+
+      if (authError) {
+        return { success: false, error: authError.message }
       }
-      
-      setUser(newUser)
-      localStorage.setItem('user', JSON.stringify(newUser))
+
+      if (!authData.user) {
+        return { success: false, error: 'Registration failed' }
+      }
+
+      // Create user profile in custom users table
+      const { data: profile, error: profileError } = await supabase
+        .from('users')
+        .insert({
+          id: authData.user.id,
+          email: authData.user.email,
+          name: userData.name || authData.user.email?.split('@')[0] || 'User',
+          phone: userData.phone || null,
+          role: userData.role || 'user',
+          organization_id: userData.organizationId || null,
+        })
+        .select()
+        .single()
+
+      if (profileError) {
+        // Log the full error for debugging
+        console.error('Error creating user profile:', {
+          error: profileError,
+          code: profileError.code,
+          message: profileError.message,
+          details: profileError.details,
+          hint: profileError.hint
+        })
+        
+        // Check for common errors
+        const errorMessage = profileError.message || ''
+        const errorCode = profileError.code || ''
+        
+        // If the table doesn't exist
+        if (errorCode === '42P01' || errorMessage.includes('does not exist') || errorMessage.includes('relation') || errorMessage.includes('table')) {
+          return { 
+            success: false, 
+            error: 'Database table not found. Please run the Supabase migration SQL first. See SUPABASE_SETUP.md for instructions.' 
+          }
+        }
+        
+        // If RLS policy violation
+        if (errorCode === '42501' || errorMessage.includes('permission denied') || errorMessage.includes('row-level security')) {
+          return { 
+            success: false, 
+            error: 'Permission denied. Please check your Supabase Row Level Security policies.' 
+          }
+        }
+        
+        // For other errors, return a user-friendly message
+        return { 
+          success: false, 
+          error: profileError.message || 'Failed to create user profile. Please try again or contact support.' 
+        }
+      }
+
+      if (profile) {
+        setUser({
+          id: authData.user.id,
+          email: authData.user.email || '',
+          name: profile.name || userData.name || authData.user.email?.split('@')[0] || 'User',
+          role: profile.role || userData.role || 'user',
+          phone: profile.phone || userData.phone,
+          organizationId: profile.organization_id || userData.organizationId,
+          image: profile.image,
+        })
+      }
+
       return { success: true }
     } catch (error) {
+      console.error('Registration error:', error)
       return { success: false, error: 'Registration failed' }
     } finally {
       setIsLoading(false)
@@ -141,10 +289,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = async (): Promise<void> => {
     setIsLoading(true)
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 500))
+      const { error } = await supabase.auth.signOut()
+      if (error) {
+        console.error('Logout error:', error)
+      }
       setUser(null)
-      localStorage.removeItem('user')
     } catch (error) {
       console.error('Logout error:', error)
     } finally {
