@@ -29,14 +29,16 @@ import {
 } from 'lucide-react'
 import { useLanguage } from '@/hooks/use-language'
 import { useAuth } from '@/hooks/use-auth'
+import { fetchFamilyMembers, sendMessage, sendFamilyRequest, findUsers, removeFamilyMemberById } from '@/services/family'
+
 
 interface FamilyMember {
   id: string
-  name: string
-  phone: string
-  uniqueId: string
-  lastSeen: Date
-  status: 'safe' | 'unknown' | 'in_danger'
+  name?: string
+  phone?: string
+  uniqueId?: string
+  lastSeen?: Date
+  status?: 'safe' | 'unknown' | 'in_danger'
   location?: { lat: number; lng: number; address: string }
 }
 
@@ -139,36 +141,64 @@ const mockSafetyModules: SafetyModule[] = [
 export default function DashboardPage() {
   const { t, language } = useLanguage()
   const { user, isAuthenticated } = useAuth()
-  const [familyMembers, setFamilyMembers] = useState<FamilyMember[]>(mockFamilyMembers)
+  const [familyMembers, setFamilyMembers] = useState<any[]>([])
   const [safetyModules, setSafetyModules] = useState<SafetyModule[]>(mockSafetyModules)
   const [showAddMember, setShowAddMember] = useState(false)
-  const [newMember, setNewMember] = useState({
-    name: '',
-    phone: '',
-    uniqueId: ''
-  })
+  const [searchIdentifier, setSearchIdentifier] = useState('')
+  const [searchResults, setSearchResults] = useState<any[]>([])
+  const [selectedFound, setSelectedFound] = useState<any | null>(null)
+  const [searching, setSearching] = useState(false)
+  const [searchTimeout, setSearchTimeout] = useState<any>(null)
+  const [memberRelation, setMemberRelation] = useState('')
   const [emergencyKitStatus, setEmergencyKitStatus] = useState(75)
 
-  const handleAddFamilyMember = () => {
-    if (!newMember.name || !newMember.phone) return
-
-    const member: FamilyMember = {
-      id: Date.now().toString(),
-      name: newMember.name,
-      phone: newMember.phone,
-      uniqueId: 'FAM-' + Math.random().toString(36).substr(2, 3).toUpperCase(),
-      lastSeen: new Date(),
-      status: 'unknown'
+  useEffect(() => {
+    let mounted = true
+    const load = async () => {
+      if (!isAuthenticated || !user?.id) return
+      try {
+        const links = await fetchFamilyMembers(user.id)
+        if (!mounted) return
+        const mapped = (links || []).map((l: any) => ({
+          id: l.member?.id ?? l.id,
+          name: l.member?.name ?? 'Unknown',
+          phone: l.member?.phone ?? '',
+          uniqueId: l.member?.id ?? l.id,
+          status: 'unknown'
+        }))
+        // dedupe by member id to avoid duplicate keys in UI
+        const seen = new Set<string>()
+        const deduped = mapped.filter((m) => {
+          const key = m.id
+          if (!key) return false
+          if (seen.has(key)) return false
+          seen.add(key)
+          return true
+        })
+        setFamilyMembers(deduped)
+      } catch (err: any) {
+        // Log informative details; JSON.stringify may hide Error fields so include message and raw
+        console.error('failed to load family members', {
+          message: err?.message ?? String(err),
+          raw: err
+        })
+      }
     }
+    load()
+    return () => { mounted = false }
+  }, [isAuthenticated, user?.id])
 
-    setFamilyMembers([...familyMembers, member])
-    setNewMember({ name: '', phone: '', uniqueId: '' })
-    setShowAddMember(false)
-  }
-
-  const handleSendSafetyCheck = (memberId: string) => {
-    // In a real app, this would send a notification
-    alert('Safety check sent to ' + familyMembers.find(m => m.id === memberId)?.name)
+  const handleSendSafetyCheck = async (memberId: string) => {
+    if (!user?.id) return
+    try {
+      // memberId here corresponds to the member.user id
+      await sendMessage(user.id, memberId, 'Are you okay?')
+      // optimistic UI / feedback
+      alert('Safety check sent')
+    } catch (err) {
+      console.error(err)
+      alert('Failed to send safety check')
+    }
   }
 
   const handleMarkSafe = (memberId: string) => {
@@ -213,7 +243,7 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 p-4">
-      <div className="max-w-7xl mx-auto">
+      <div className="max-w-[90rem] mx-auto">
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">
@@ -316,29 +346,123 @@ export default function DashboardPage() {
                       </DialogHeader>
                       <div className="space-y-4">
                         <div>
-                          <Label htmlFor="member-name">{t('family.memberName')}</Label>
-                          <Input
-                            id="member-name"
-                            value={newMember.name}
-                            onChange={(e) => setNewMember(prev => ({ ...prev, name: e.target.value }))}
-                            placeholder="Enter family member name"
-                          />
+                          <Label htmlFor="member-identifier">Search by phone, email or name</Label>
+                          <div className="flex gap-2">
+                            <Input
+                              id="member-identifier"
+                              value={searchIdentifier}
+                              onChange={(e) => {
+                                const v = e.target.value
+                                setSearchIdentifier(v)
+                                // debounce search on keyup/typing
+                                if (searchTimeout) clearTimeout(searchTimeout)
+                                const t = setTimeout(async () => {
+                                  if (!v) {
+                                    setSearchResults([])
+                                    setSelectedFound(null)
+                                    return
+                                  }
+                                  // protect admin: do not allow searching
+                                  if (user?.isAdmin) {
+                                    setSearchResults([])
+                                    setSelectedFound(null)
+                                    return
+                                  }
+                                  setSearching(true)
+                                  try {
+                                    const results = await findUsers(v)
+                                    setSearchResults(results || [])
+                                    setSelectedFound(null)
+                                  } catch (err) {
+                                    console.error('search users failed', err)
+                                    setSearchResults([])
+                                  } finally {
+                                    setSearching(false)
+                                  }
+                                }, 400)
+                                setSearchTimeout(t)
+                              }}
+                              onKeyUp={() => {
+                                /* keyup handled via debounce in onChange */
+                              }}
+                              placeholder="phone, email or name"
+                              disabled={user?.isAdmin}
+                            />
+                          </div>
                         </div>
-                        <div>
-                          <Label htmlFor="member-phone">{t('family.memberPhone')}</Label>
-                          <Input
-                            id="member-phone"
-                            value={newMember.phone}
-                            onChange={(e) => setNewMember(prev => ({ ...prev, phone: e.target.value }))}
-                            placeholder="Enter phone number"
-                          />
-                        </div>
-                        <div className="text-sm text-gray-600">
-                          Unique ID will be generated automatically
-                        </div>
-                        <Button onClick={handleAddFamilyMember} className="w-full">
-                          Add Member
-                        </Button>
+
+                        {searchResults.length > 0 && (
+                          <div className="space-y-2 max-h-48 overflow-auto">
+                            {searchResults.map((r) => (
+                              <div key={r.id} className={`p-2 border rounded flex items-center justify-between ${selectedFound?.id === r.id ? 'bg-blue-50' : 'hover:bg-gray-50'}`}>
+                                <div>
+                                  <div className="font-medium">{r.name}</div>
+                                  <div className="text-xs text-gray-500">{r.email || r.phone}</div>
+                                </div>
+                                <div>
+                                  <Button size="sm" onClick={() => setSelectedFound(r)}>
+                                    Select
+                                  </Button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {selectedFound && (
+                          <div className="p-2 border rounded bg-white">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <div className="font-medium">{selectedFound.name}</div>
+                                <div className="text-xs text-gray-500">{selectedFound.email || selectedFound.phone}</div>
+                              </div>
+                              <div className="flex gap-2">
+                                <Button size="sm" onClick={async () => {
+                                  if (!user?.id || !selectedFound?.id || !memberRelation.trim()) {
+                                    alert('Please specify the relation before sending request')
+                                    return
+                                  }
+                                  try {
+                                    const res = await sendFamilyRequest(user.id, selectedFound.id, memberRelation)
+                                    if (res?.success) {
+                                      alert('Family request sent! Waiting for approval.')
+                                      setSearchIdentifier('')
+                                      setSearchResults([])
+                                      setSelectedFound(null)
+                                      setMemberRelation('')
+                                      setShowAddMember(false)
+                                      return
+                                    }
+                                    if (res?.error === 'already_linked') {
+                                      alert('This member is already in your family network.')
+                                    } else if (res?.error === 'request_already_sent') {
+                                      alert('You have already sent a request to this person.')
+                                    } else {
+                                      console.warn('request not successful', res?.error)
+                                      alert('Failed to send request. Please try again.')
+                                    }
+                                  } catch (err) {
+                                    console.error('send request failed', err)
+                                    alert('An error occurred. Please try again.')
+                                  }
+                                }}>Send Request</Button>
+                                <Button size="sm" variant="outline" onClick={() => setSelectedFound(null)}>Cancel</Button>
+                              </div>
+                            </div>
+                            
+                            <div className="mt-3">
+                              <Label htmlFor="member-relation">Relation (Required) <span className="text-red-500">*</span></Label>
+                              <Input
+                                id="member-relation"
+                                value={memberRelation}
+                                onChange={(e) => setMemberRelation(e.target.value)}
+                                placeholder="e.g., Mother, Father, Brother, Sister"
+                                required
+                              />
+                              <p className="text-xs text-gray-500 mt-1">Specify your relationship to this person</p>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </DialogContent>
                   </Dialog>
@@ -356,23 +480,16 @@ export default function DashboardPage() {
                           <h3 className="font-medium">{member.name}</h3>
                           <p className="text-sm text-gray-600">{member.phone}</p>
                           <p className="text-xs text-gray-500">ID: {member.uniqueId}</p>
-                          {member.location && (
+                          {selectedFound && (
                             <p className="text-xs text-gray-500 flex items-center gap-1 mt-1">
                               <MapPin className="w-3 h-3" />
-                              {member.location.address}
+                              {member.location?.address}
                             </p>
                           )}
                         </div>
                       </div>
-                      
+
                       <div className="flex items-center gap-2">
-                        <Badge className={getStatusColor(member.status)}>
-                          {member.status === 'safe' ? <CheckCircle className="w-3 h-3 mr-1" /> :
-                           member.status === 'in_danger' ? <AlertTriangle className="w-3 h-3 mr-1" /> :
-                           <Clock className="w-3 h-3 mr-1" />}
-                          {t(`family.${member.status}`)}
-                        </Badge>
-                        
                         <div className="flex gap-1">
                           <Button size="sm" variant="outline" onClick={() => handleSendSafetyCheck(member.id)}>
                             <MessageCircle className="w-3 h-3 mr-1" />
@@ -384,6 +501,39 @@ export default function DashboardPage() {
                               {t('family.markDone')}
                             </Button>
                           )}
+                          <Button size="sm" variant="destructive" onClick={async () => {
+                            if (!user?.id) return
+                            try {
+                              const res = await removeFamilyMemberById(user.id, member.id)
+                              if (res?.success) {
+                                const links = await fetchFamilyMembers(user.id)
+                                const mapped = (links || []).map((l: any) => ({
+                                  id: l.member?.id ?? l.id,
+                                  name: l.member?.name ?? 'Unknown',
+                                  phone: l.member?.phone ?? '',
+                                  uniqueId: l.member?.id ?? l.id,
+                                  status: 'unknown'
+                                }))
+                                const seen3 = new Set<string>()
+                                const deduped3 = mapped.filter((m) => {
+                                  const key = m.id
+                                  if (!key) return false
+                                  if (seen3.has(key)) return false
+                                  seen3.add(key)
+                                  return true
+                                })
+                                setFamilyMembers(deduped3)
+                              } else {
+                                console.warn('unlink failed', res?.error)
+                                alert('Failed to unlink member')
+                              }
+                            } catch (err) {
+                              console.error(err)
+                              alert('Failed to unlink member')
+                            }
+                          }}>
+                            Unlink
+                          </Button>
                         </div>
                       </div>
                     </div>
