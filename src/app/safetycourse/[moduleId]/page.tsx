@@ -23,8 +23,11 @@ interface ModuleDetailProps {
 }
 
 export default function ModuleDetail({ params }: ModuleDetailProps) {
-  // const course = mockSafetyModules.find((m) => m.id === params.moduleId);
-  const course = mockSafetyModules.find((m) => m.id === m.id);
+  const course = mockSafetyModules.find(
+    (m) => m.id.toString() === params.moduleId
+  );
+
+  // const course = mockSafetyModules.find((m) => m.id === m.id);
   const [activeTab, setActiveTab] = useState("video");
   const [selectedAnswers, setSelectedAnswers] = useState({});
   const [showResult, setShowResult] = useState(false);
@@ -35,6 +38,12 @@ export default function ModuleDetail({ params }: ModuleDetailProps) {
   const score = course?.quiz?.filter(
     (q, i) => selectedAnswers[i] === q.answer
   ).length;
+
+  console.log("params.moduleId:", params.moduleId);
+  console.log(
+    "mockSafetyModules IDs:",
+    mockSafetyModules.map((m) => m.id)
+  );
 
   if (!course) return <p className="p-4 text-red-500">Module not found</p>;
 
