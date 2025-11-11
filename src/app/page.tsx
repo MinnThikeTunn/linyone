@@ -477,7 +477,7 @@ export default function HomePage() {
           {/* Map Area */}
           <div className="lg:col-span-2">
             {/* Header */}
-            <div className="max-w-7xl mx-auto px-4 sm:px-8 lg:px-10 py-4">
+            <div className="max-w-7xl mx-auto py-4">
               {/* <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"> */}
               <div className="flex items-center gap-2 w-full">
                 <Button
@@ -487,7 +487,7 @@ export default function HomePage() {
                   disabled={isGettingLocation}
                   className="flex items-center lg:gap-2 w-1/2"
                 >
-                  <Navigation className="w-4 h-4" />
+                  <Navigation className="w-5 h-5" />
                   {t("map.currentLocation")}
                 </Button>
 
@@ -506,7 +506,11 @@ export default function HomePage() {
                   }}
                 >
                   <DialogTrigger asChild>
-                    <Button className="flex items-center gap-2 w-1/2">
+                    <Button
+                      // variant="outline"
+                      size="sm"
+                      className="flex items-center gap-2 w-1/2 bg-black"
+                    >
                       <Plus className="w-4 h-4" />
                       {t("map.addPin")}
                     </Button>
