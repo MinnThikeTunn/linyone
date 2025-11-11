@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
@@ -39,14 +39,18 @@ export function Navigation() {
   const pathname = usePathname()
   const { t, language, setLanguage } = useLanguage()
   const { user, logout, isAuthenticated, isLoading } = useAuth()
+  const router = useRouter()
+
+  const userLabel = user?.role ?? (user?.isAdmin ? 'admin' : user?.accountType)
 
   // Dynamic navigation based on authentication status
   const getNavigationItems = () => {
     if (isAuthenticated) {
-      // Logged in: Map and Dashboard
+      // Logged in: Map and Dashboard (dashboard route depends on account type/admin)
+      const dashboardHref = user?.isAdmin ? '/admin' : (user?.isOrg ? '/organization' : '/dashboard')
       return [
         { name: 'map', href: '/', icon: MapPin, labelKey: 'nav.map' },
-        { name: 'dashboard', href: '/dashboard', icon: LayoutDashboard, labelKey: 'nav.dashboard' },
+        { name: 'dashboard', href: dashboardHref, icon: LayoutDashboard, labelKey: 'nav.dashboard' },
       ]
     } else {
       // Not logged in: Map and Recent Alerts
@@ -72,6 +76,7 @@ export function Navigation() {
 
   const handleLogout = async () => {
     await logout()
+    router.push('/')
   }
 
 
@@ -152,9 +157,9 @@ export function Navigation() {
                       {user?.name && (
                         <p className="font-medium">{user.name}</p>
                       )}
-                      {user?.role && (
+                      {userLabel && (
                         <p className="w-[200px] truncate text-sm text-muted-foreground capitalize">
-                          {user.role}
+                          {userLabel}
                         </p>
                       )}
                     </div>
@@ -173,7 +178,7 @@ export function Navigation() {
                     )
                   })}
                   
-                  {user?.role === 'admin' && adminNavigation.map((item) => {
+                  {(user?.isAdmin || user?.role === 'admin') && adminNavigation.map((item) => {
                     const Icon = item.icon
                     return (
                       <DropdownMenuItem key={item.name} asChild>
@@ -298,7 +303,7 @@ export function Navigation() {
                     </Avatar>
                     <div>
                       <p className="text-sm font-medium">{user?.name}</p>
-                      <p className="text-xs text-gray-500 capitalize">{user?.role}</p>
+                      <p className="text-xs text-gray-500 capitalize">{userLabel}</p>
                     </div>
                   </div>
                   

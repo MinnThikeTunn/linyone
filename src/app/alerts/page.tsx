@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -29,59 +29,129 @@ interface AlertItem {
   actionLabel?: string
 }
 
-const mockAlerts: AlertItem[] = [
-  {
-    id: '1',
-    type: 'earthquake',
-    title: 'Earthquake Alert',
-    description: 'Magnitude 4.5 detected near Yangon',
-    timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000),
-    severity: 'high',
-    location: 'Yangon, Myanmar',
-    actionUrl: '/',
-    actionLabel: 'View on Map'
-  },
-  {
-    id: '2',
-    type: 'safety',
-    title: 'Safety Reminder',
-    description: 'Check your emergency kit supplies',
-    timestamp: new Date(Date.now() - 24 * 60 * 60 * 1000),
-    severity: 'medium',
-    actionLabel: 'Check Kit'
-  },
-  {
-    id: '3',
-    type: 'family',
-    title: 'Family Update',
-    description: 'Family member marked as safe',
-    timestamp: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
-    severity: 'low'
-  },
-  {
-    id: '4',
-    type: 'emergency',
-    title: 'Emergency Shelter Available',
-    description: 'New emergency shelter opened at Central School',
-    timestamp: new Date(Date.now() - 3 * 60 * 60 * 1000),
-    severity: 'high',
-    location: 'Central School, Yangon',
-    actionUrl: '/',
-    actionLabel: 'View Location'
-  },
-  {
-    id: '5',
-    type: 'safety',
-    title: 'Weather Alert',
-    description: 'Heavy rain expected in the next 24 hours',
-    timestamp: new Date(Date.now() - 6 * 60 * 60 * 1000),
-    severity: 'medium'
-  }
-]
+// No mock data: we'll fetch from USGS and subscribe to realtime socket events
 
 export default function AlertsPage() {
   const { t } = useLanguage()
-  const [alerts] = useState<AlertItem[]>(mockAlerts)
+  const [alerts, setAlerts] = useState<AlertItem[]>([])
+  const socketRef = useRef<any>(null)
+
+  // Myanmar bounding box for USGS queries
+  const BOUNDS = {
+    minlatitude: 9.5,
+    maxlatitude: 28.6,
+    minlongitude: 92.2,
+    maxlongitude: 101.2,
+  }
+
+  // Map USGS feature -> AlertItem
+  const mapFeatureToAlert = (feature: any): AlertItem => {
+    const id = feature.id
+    const mag = feature.properties?.mag
+    const place = feature.properties?.place || 'Unknown location'
+    const time = feature.properties?.time ? new Date(feature.properties.time) : new Date()
+    const severity: AlertItem['severity'] = mag >= 5 ? 'high' : (mag >= 4 ? 'medium' : 'low')
+    return {
+      id,
+      type: 'earthquake',
+      title: `M ${mag} — ${place}`,
+      description: feature.properties?.title || `${mag} earthquake at ${place}`,
+      timestamp: time,
+      severity,
+      location: place,
+      actionUrl: feature.properties?.url,
+      actionLabel: 'More info'
+    }
+  }
+
+  // Fetch initial latest 10 earthquakes from USGS for Myanmar
+  useEffect(() => {
+    let mounted = true
+    const fetchInitial = async () => {
+      try {
+        const params = new URLSearchParams({
+          format: 'geojson',
+          orderby: 'time',
+          limit: '10',
+          starttime: new Date(Date.now() - 1000 * 60 * 60 * 24 * 7).toISOString(), // last 7 days
+          endtime: new Date().toISOString(),
+          minlatitude: String(BOUNDS.minlatitude),
+          maxlatitude: String(BOUNDS.maxlatitude),
+          minlongitude: String(BOUNDS.minlongitude),
+          maxlongitude: String(BOUNDS.maxlongitude),
+        })
+        const url = `https://earthquake.usgs.gov/fdsnws/event/1/query?${params.toString()}`
+        const res = await fetch(url)
+        if (!res.ok) return
+        const data = await res.json()
+        if (!mounted) return
+        const items = (data.features || []).map(mapFeatureToAlert)
+        setAlerts(items.slice(0, 10))
+      } catch (err) {
+        console.error('Failed to fetch USGS data', err)
+      }
+    }
+
+    fetchInitial()
+
+    return () => { mounted = false }
+  }, [])
+
+  // Subscribe to Ably realtime channel 'earthquakes-myanmar'
+  useEffect(() => {
+    let ablyClient: any = null
+    let channel: any = null
+    const key = process.env.NEXT_PUBLIC_ABLY_KEY
+    if (!key) {
+      console.warn('NEXT_PUBLIC_ABLY_KEY not set — realtime Ably subscription disabled')
+      return
+    }
+
+    let mounted = true
+    ;(async () => {
+      try {
+        const Ably = await import('ably')
+        // @ts-ignore
+        ablyClient = new Ably.Realtime({ key })
+        channel = ablyClient.channels.get('earthquakes-myanmar')
+
+        channel.subscribe((msg: any) => {
+          if (!mounted) return
+          const payload = msg.data
+          try {
+            const feat = {
+              id: payload.id,
+              properties: {
+                mag: payload.magnitude ?? payload.mag,
+                title: payload.title,
+                place: payload.place,
+                time: payload.time,
+                url: payload.url
+              },
+              geometry: { coordinates: payload.coordinates }
+            }
+            const alert = mapFeatureToAlert(feat)
+            setAlerts(prev => {
+              if (prev.find(a => a.id === alert.id)) return prev
+              return [alert, ...prev].slice(0, 10)
+            })
+          } catch (err) {
+            console.error('Error handling Ably earthquake message', err)
+          }
+        })
+      } catch (err) {
+        console.error('Failed to initialize Ably realtime client', err)
+      }
+    })()
+
+    return () => {
+      mounted = false
+      try {
+        if (channel) channel.unsubscribe()
+        if (ablyClient) ablyClient.close()
+      } catch (_) {}
+    }
+  }, [])
 
   const getAlertIcon = (type: string) => {
     switch (type) {
