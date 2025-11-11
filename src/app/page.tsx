@@ -41,14 +41,14 @@ import {
 } from "lucide-react";
 import { useLanguage } from "@/hooks/use-language";
 import { useAuth } from "@/hooks/use-auth";
-import { 
-  createPin, 
-  fetchPins, 
-  updatePinStatus, 
+import {
+  createPin,
+  fetchPins,
+  updatePinStatus,
   isUserActiveTracker,
   getUserOrgMember,
   deletePin,
-  type Pin as SupabasePin 
+  type Pin as SupabasePin,
 } from "@/services/pins";
 
 // Add Mapbox GL JS
@@ -465,13 +465,13 @@ export default function HomePage() {
           image: undefined,
         },
         pinImage || undefined,
-        user?.role  // Pass user role for status determination
+        user?.role // Pass user role for status determination
       );
 
       if (result.success && result.pin) {
         // Add new pin to local state
         setPins([result.pin, ...pins]);
-        
+
         // Reset form
         setPinPhone("");
         setPinDescription("");
@@ -542,7 +542,7 @@ export default function HomePage() {
         pinId,
         "confirmed",
         userOrgMemberId || undefined,
-        user.id  // Pass userId for authorization check
+        user.id // Pass userId for authorization check
       );
 
       if (result.success) {
@@ -597,7 +597,12 @@ export default function HomePage() {
         return;
       }
 
-      const result = await updatePinStatus(pinId, "completed", undefined, user.id);
+      const result = await updatePinStatus(
+        pinId,
+        "completed",
+        undefined,
+        user.id
+      );
 
       if (result.success) {
         setPins(
@@ -638,7 +643,7 @@ export default function HomePage() {
         return;
       }
 
-      if (user?.role !== 'organization') {
+      if (user?.role !== "organization") {
         toast({
           title: "Error",
           description: "Only organizations can delete pins",
@@ -651,8 +656,8 @@ export default function HomePage() {
       // Find the pin on map and remove it with animation
       const pinElement = document.querySelector(`[data-pin-id="${pinId}"]`);
       if (pinElement) {
-        pinElement.classList.add('animate-bounce', 'opacity-50');
-        await new Promise(resolve => setTimeout(resolve, 300)); // Animation delay
+        pinElement.classList.add("animate-bounce", "opacity-50");
+        await new Promise((resolve) => setTimeout(resolve, 300)); // Animation delay
       }
 
       // Delete from database
@@ -661,10 +666,10 @@ export default function HomePage() {
       if (result.success) {
         // Remove from UI with animation
         setPins(pins.filter((pin) => pin.id !== pinId));
-        
+
         // Close the dialog
         setSelectedPin(null);
-        
+
         toast({
           title: "Success",
           description: "Pin deleted successfully",
@@ -748,7 +753,7 @@ export default function HomePage() {
                   }}
                 >
                   {/* Hide "Add Pin" button for organizations - they only manage pins */}
-                  {user?.role !== 'organization' && (
+                  {user?.role !== "organization" && (
                     <DialogTrigger asChild>
                       <Button
                         // variant="outline"
@@ -847,8 +852,8 @@ export default function HomePage() {
                       )}
 
                       <div className="flex gap-2">
-                        <Button 
-                          onClick={handleCreatePin} 
+                        <Button
+                          onClick={handleCreatePin}
                           className="flex-1"
                           disabled={isCreatingPin}
                         >
@@ -1043,34 +1048,33 @@ export default function HomePage() {
                       </div>
 
                       {/* Action buttons for trackers - can confirm pending pins */}
-                      {isUserTracker &&
-                        pin.status === "pending" && (
-                          <div className="flex gap-1 mt-2">
-                            <Button
-                              size="sm"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleConfirmPin(pin.id);
-                              }}
-                              className="flex-1"
-                            >
-                              <Check className="w-3 h-3 mr-1" />
-                              Confirm
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDenyPin(pin.id);
-                              }}
-                              className="flex-1"
-                            >
-                              <X className="w-3 h-3 mr-1" />
-                              Deny
-                            </Button>
-                          </div>
-                        )}
+                      {isUserTracker && pin.status === "pending" && (
+                        <div className="flex gap-1 mt-2">
+                          <Button
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleConfirmPin(pin.id);
+                            }}
+                            className="flex-1"
+                          >
+                            <Check className="w-3 h-3 mr-1" />
+                            Confirm
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDenyPin(pin.id);
+                            }}
+                            className="flex-1"
+                          >
+                            <X className="w-3 h-3 mr-1" />
+                            Deny
+                          </Button>
+                        </div>
+                      )}
 
                       {userRole === "supply_volunteer" &&
                         pin.status === "confirmed" &&
@@ -1161,28 +1165,27 @@ export default function HomePage() {
 
               {/* Action buttons */}
               <div className="flex gap-2">
-                {isUserTracker &&
-                  selectedPin.status === "pending" && (
-                    <>
-                      <Button
-                        onClick={() => handleConfirmPin(selectedPin.id)}
-                        className="flex-1"
-                      >
-                        <Check className="w-4 h-4 mr-2" />
-                        Confirm
-                      </Button>
-                      <Button
-                        variant="outline"
-                        onClick={() => handleDenyPin(selectedPin.id)}
-                        className="flex-1"
-                      >
-                        <X className="w-4 h-4 mr-2" />
-                        Deny
-                      </Button>
-                    </>
-                  )}
+                {isUserTracker && selectedPin.status === "pending" && (
+                  <>
+                    <Button
+                      onClick={() => handleConfirmPin(selectedPin.id)}
+                      className="flex-1"
+                    >
+                      <Check className="w-4 h-4 mr-2" />
+                      Confirm
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => handleDenyPin(selectedPin.id)}
+                      className="flex-1"
+                    >
+                      <X className="w-4 h-4 mr-2" />
+                      Deny
+                    </Button>
+                  </>
+                )}
 
-                {user?.role === 'organization' &&
+                {user?.role === "organization" &&
                   selectedPin.status === "confirmed" && (
                     <Button
                       onClick={() => handleDeletePin(selectedPin.id)}
