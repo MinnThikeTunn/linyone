@@ -615,7 +615,7 @@ export default function HomePage() {
               {/* </div> */}
             </div>
 
-            <Card className="h-[600px]">
+            <Card className="h-[800px] py-0">
               <CardContent className="p-0 h-full relative">
                 {/* Mapbox Map */}
                 <div
