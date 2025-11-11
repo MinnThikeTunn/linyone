@@ -25,11 +25,18 @@ import {
   Eye,
   Upload,
   Package,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Plus,
+  UserPlus,
+  Edit,
+  Trash2,
+  Warehouse
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useLanguage } from '@/hooks/use-language'
 import { useAuth } from '@/hooks/use-auth'
 
@@ -43,6 +50,8 @@ interface Volunteer {
   location: string
   joinedAt: Date
   assignmentsCompleted: number
+  password?: string
+  assignment?: string
 }
 
 interface RequiredItem {
@@ -86,6 +95,19 @@ interface PartnerOrg {
   region: string
   activeCollaborations: number
   status: 'active' | 'inactive'
+  phone: string
+}
+
+interface Supply {
+  id: string
+  category: 'medical' | 'food' | 'water' | 'shelter' | 'equipment' | 'other'
+  name: string
+  quantity: number
+  unit: string
+  location?: string
+  expiryDate?: Date
+  lastUpdated: Date
+  notes?: string
 }
 
 // Mock data
@@ -129,7 +151,7 @@ const mockHelpRequests: HelpRequest[] = [
   {
     id: '1',
     title: 'Medical Supplies Needed',
-    description: 'Urgent need for medical supplies at evacuation center. Multiple injured people need immediate medical attention.',
+    description: '',
     location: 'Yangon Downtown, Main Street',
     lat: 16.8409,
     lng: 96.1735,
@@ -148,7 +170,7 @@ const mockHelpRequests: HelpRequest[] = [
   {
     id: '2',
     title: 'Food Distribution',
-    description: 'Food supplies needed for 200+ displaced families at temporary shelter',
+    description: '',
     location: 'Mandalay District, Central Park',
     lat: 21.9588,
     lng: 96.0891,
@@ -211,36 +233,113 @@ const mockPartnerOrgs: PartnerOrg[] = [
     name: 'Medical Response B',
     region: 'Mandalay',
     activeCollaborations: 3,
-    status: 'active'
+    status: 'active',
+    phone: '+959123456789'
   },
   {
     id: '2',
     name: 'Supply Chain C',
     region: 'Naypyidaw',
     activeCollaborations: 2,
-    status: 'active'
+    status: 'active',
+    phone: '+959987654321'
+  }
+]
+
+// Mock supplies data
+const mockSupplies: Supply[] = [
+  {
+    id: '1',
+    category: 'medical',
+    name: 'First Aid Kits',
+    quantity: 50,
+    unit: 'kits',
+    location: 'Warehouse A',
+    lastUpdated: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+    notes: 'Standard first aid supplies'
+  },
+  {
+    id: '2',
+    category: 'food',
+    name: 'Emergency Food Packs',
+    quantity: 200,
+    unit: 'packs',
+    location: 'Storage Room 1',
+    expiryDate: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000),
+    lastUpdated: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000)
+  },
+  {
+    id: '3',
+    category: 'water',
+    name: 'Bottled Water',
+    quantity: 500,
+    unit: 'bottles',
+    location: 'Warehouse B',
+    expiryDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+    lastUpdated: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000)
+  },
+  {
+    id: '4',
+    category: 'shelter',
+    name: 'Emergency Tents',
+    quantity: 25,
+    unit: 'tents',
+    location: 'Storage Room 2',
+    lastUpdated: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+  },
+  {
+    id: '5',
+    category: 'equipment',
+    name: 'Flashlights',
+    quantity: 100,
+    unit: 'units',
+    location: 'Warehouse A',
+    lastUpdated: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000)
   }
 ]
 
 export default function OrganizationPage() {
   const { t } = useLanguage()
-  const { user, isLoading } = useAuth()
+  const { user } = useAuth()
   const router = useRouter()
   const [volunteers, setVolunteers] = useState<Volunteer[]>(mockVolunteers)
   const [helpRequests, setHelpRequests] = useState<HelpRequest[]>(mockHelpRequests)
   const [partnerOrgs, setPartnerOrgs] = useState<PartnerOrg[]>(mockPartnerOrgs)
+  const [supplies, setSupplies] = useState<Supply[]>(mockSupplies)
   const [selectedRequest, setSelectedRequest] = useState<HelpRequest | null>(null)
   const [showAcceptDialog, setShowAcceptDialog] = useState(false)
   const [showCompleteDialog, setShowCompleteDialog] = useState(false)
   const [acceptQuantities, setAcceptQuantities] = useState<Record<string, number>>({})
   const [proofImage, setProofImage] = useState<File | null>(null)
+  const [showRegisterVolunteer, setShowRegisterVolunteer] = useState(false)
+  const [newVolunteer, setNewVolunteer] = useState({
+    name: '',
+    phone: '',
+    email: '',
+    role: 'tracking_volunteer' as 'tracking_volunteer' | 'supply_volunteer',
+    location: '',
+    assignment: '',
+    status: 'pending' as 'pending' | 'active',
+    password: ''
+  })
+  const [showAddSupply, setShowAddSupply] = useState(false)
+  const [editingSupply, setEditingSupply] = useState<Supply | null>(null)
+  const [supplyForm, setSupplyForm] = useState({
+    category: 'medical' as Supply['category'],
+    name: '',
+    quantity: 0,
+    unit: '',
+    location: '',
+    expiryDate: '',
+    notes: ''
+  })
 
-  // Redirect non-organization users after auth resolved
+  // Redirect non-organization users
   useEffect(() => {
-    if (!isLoading && user && !user.isOrg) {
+    if (user && user.role !== 'organization') {
       window.location.href = '/'
     }
-  }, [user, isLoading])
+  }, [user])
 
   const handleApproveVolunteer = (volunteerId: string) => {
     setVolunteers(volunteers.map(v => 
@@ -252,6 +351,143 @@ export default function OrganizationPage() {
     setVolunteers(volunteers.map(v => 
       v.id === volunteerId ? { ...v, status: 'inactive' } : v
     ))
+  }
+
+  const handleRegisterVolunteer = () => {
+    if (!newVolunteer.name || !newVolunteer.phone || !newVolunteer.password || !newVolunteer.location) {
+      alert('Please fill all required fields (Name, Phone, Password, Location)')
+      return
+    }
+
+    const volunteer: Volunteer = {
+      id: Date.now().toString(),
+      name: newVolunteer.name,
+      email: newVolunteer.email || `${newVolunteer.phone}@volunteer.local`,
+      phone: newVolunteer.phone,
+      role: newVolunteer.role,
+      status: newVolunteer.status,
+      location: newVolunteer.location,
+      joinedAt: new Date(),
+      assignmentsCompleted: 0,
+      password: newVolunteer.password,
+      assignment: newVolunteer.assignment || undefined
+    }
+
+    setVolunteers([...volunteers, volunteer])
+    setNewVolunteer({
+      name: '',
+      phone: '',
+      email: '',
+      role: 'tracking_volunteer',
+      location: '',
+      assignment: '',
+      status: 'pending',
+      password: ''
+    })
+    setShowRegisterVolunteer(false)
+  }
+
+  const handleAddSupply = () => {
+    if (!supplyForm.name || !supplyForm.quantity || !supplyForm.unit) {
+      alert('Please fill all required fields (Name, Quantity, Unit)')
+      return
+    }
+
+    const newSupply: Supply = {
+      id: Date.now().toString(),
+      category: supplyForm.category,
+      name: supplyForm.name,
+      quantity: supplyForm.quantity,
+      unit: supplyForm.unit,
+      location: supplyForm.location || undefined,
+      expiryDate: supplyForm.expiryDate ? new Date(supplyForm.expiryDate) : undefined,
+      lastUpdated: new Date(),
+      notes: supplyForm.notes || undefined
+    }
+
+    setSupplies([...supplies, newSupply])
+    setSupplyForm({
+      category: 'medical',
+      name: '',
+      quantity: 0,
+      unit: '',
+      location: '',
+      expiryDate: '',
+      notes: ''
+    })
+    setShowAddSupply(false)
+  }
+
+  const handleEditSupply = (supply: Supply) => {
+    setEditingSupply(supply)
+    setSupplyForm({
+      category: supply.category,
+      name: supply.name,
+      quantity: supply.quantity,
+      unit: supply.unit,
+      location: supply.location || '',
+      expiryDate: supply.expiryDate ? supply.expiryDate.toISOString().split('T')[0] : '',
+      notes: supply.notes || ''
+    })
+    setShowAddSupply(true)
+  }
+
+  const handleUpdateSupply = () => {
+    if (!editingSupply || !supplyForm.name || !supplyForm.quantity || !supplyForm.unit) {
+      alert('Please fill all required fields (Name, Quantity, Unit)')
+      return
+    }
+
+    setSupplies(supplies.map(s =>
+      s.id === editingSupply.id
+        ? {
+            ...s,
+            category: supplyForm.category,
+            name: supplyForm.name,
+            quantity: supplyForm.quantity,
+            unit: supplyForm.unit,
+            location: supplyForm.location || undefined,
+            expiryDate: supplyForm.expiryDate ? new Date(supplyForm.expiryDate) : undefined,
+            lastUpdated: new Date(),
+            notes: supplyForm.notes || undefined
+          }
+        : s
+    ))
+
+    setEditingSupply(null)
+    setSupplyForm({
+      category: 'medical',
+      name: '',
+      quantity: 0,
+      unit: '',
+      location: '',
+      expiryDate: '',
+      notes: ''
+    })
+    setShowAddSupply(false)
+  }
+
+  const handleDeleteSupply = (supplyId: string) => {
+    if (confirm('Are you sure you want to delete this supply?')) {
+      setSupplies(supplies.filter(s => s.id !== supplyId))
+    }
+  }
+
+  const getCategoryColor = (category: Supply['category']) => {
+    switch (category) {
+      case 'medical':
+        return 'bg-red-100 text-red-800'
+      case 'food':
+        return 'bg-orange-100 text-orange-800'
+      case 'water':
+        return 'bg-blue-100 text-blue-800'
+      case 'shelter':
+        return 'bg-green-100 text-green-800'
+      case 'equipment':
+        return 'bg-purple-100 text-purple-800'
+      default:
+        return 'bg-gray-100 text-gray-800'
+    }
   }
 
   // Note: Organizations accept requests directly, they don't assign volunteers
@@ -415,12 +651,7 @@ export default function OrganizationPage() {
   // Filter to show only confirmed pins (help requests) - show pending and partially_accepted, exclude completed
   const confirmedHelpRequests = helpRequests.filter(r => r.status !== 'completed')
 
-  if (isLoading) {
-    // while auth is restoring, don't render the page
-    return null
-  }
-
-  if (!user || !user.isOrg) {
+  if (!user || user.role !== 'organization') {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <Alert className="max-w-md">
@@ -435,7 +666,7 @@ export default function OrganizationPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 p-4">
-      <div className="max-w-[90rem] mx-auto">
+      <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">
@@ -502,15 +733,12 @@ export default function OrganizationPage() {
               <AlertTriangle className="w-6 h-6 text-orange-500" />
               Help Requests (Confirmed Pins)
             </CardTitle>
-            <CardDescription>
-              View and accept help requests from confirmed location pins
-            </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
               {confirmedHelpRequests.map((request) => (
                 <Card key={request.id} className="p-4 hover:shadow-md transition-shadow">
-                  <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-center justify-between gap-4">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-2">
                         <h3 className="font-medium text-lg">{request.title}</h3>
@@ -527,7 +755,9 @@ export default function OrganizationPage() {
                           </Badge>
                         )}
                       </div>
-                      <p className="text-sm text-gray-600 mb-3">{request.description}</p>
+                      {request.description && (
+                        <p className="text-sm text-gray-600 mb-3">{request.description}</p>
+                      )}
                       
                       <div className="flex items-center gap-4 text-xs text-gray-500 mb-3">
                         <div className="flex items-center gap-1">
@@ -563,20 +793,20 @@ export default function OrganizationPage() {
                       </div>
                     </div>
                     
-                    <div className="flex flex-col gap-2">
+                    <div className="flex flex-col gap-3 items-center justify-center">
                       <Button 
-                        size="sm" 
+                        size="default" 
                         variant="outline"
                         onClick={() => handleViewRequest(request)}
-                        className="flex items-center gap-2"
+                        className="flex items-center gap-2 min-w-[140px]"
                       >
                         <Eye className="w-4 h-4" />
                         View Details
                       </Button>
                       <Button 
-                        size="sm"
+                        size="default"
                         onClick={() => handleViewOnMap(request)}
-                        className="flex items-center gap-2"
+                        className="flex items-center gap-2 min-w-[140px]"
                       >
                         <Navigation className="w-4 h-4" />
                         View on Map
@@ -597,10 +827,14 @@ export default function OrganizationPage() {
 
         {/* Secondary Features - Tabs */}
         <Tabs defaultValue="volunteers" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="volunteers" className="flex items-center gap-2">
               <Users className="w-4 h-4" />
               {t('org.volunteerManagement')}
+            </TabsTrigger>
+            <TabsTrigger value="supplies" className="flex items-center gap-2">
+              <Warehouse className="w-4 h-4" />
+              Supply Management
             </TabsTrigger>
             <TabsTrigger value="statistics" className="flex items-center gap-2">
               <TrendingUp className="w-4 h-4" />
@@ -616,13 +850,148 @@ export default function OrganizationPage() {
           <TabsContent value="volunteers" className="space-y-6">
             <Card>
               <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
                 <CardTitle className="flex items-center gap-2">
                   <Users className="w-5 h-5 text-blue-500" />
                   {t('org.volunteerManagement')}
                 </CardTitle>
                 <CardDescription>
-                  Approve, manage, and assign volunteers to tasks
+                      Register, approve, and manage volunteers
                 </CardDescription>
+                  </div>
+                  <Dialog open={showRegisterVolunteer} onOpenChange={setShowRegisterVolunteer}>
+                    <DialogTrigger asChild>
+                      <Button>
+                        <UserPlus className="w-4 h-4 mr-2" />
+                        Register Volunteer
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                      <DialogHeader>
+                        <DialogTitle>Register New Volunteer</DialogTitle>
+                      </DialogHeader>
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <Label htmlFor="volunteer-name">Name *</Label>
+                            <Input
+                              id="volunteer-name"
+                              value={newVolunteer.name}
+                              onChange={(e) => setNewVolunteer(prev => ({ ...prev, name: e.target.value }))}
+                              placeholder="Enter volunteer name"
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor="volunteer-phone">Phone Number *</Label>
+                            <Input
+                              id="volunteer-phone"
+                              value={newVolunteer.phone}
+                              onChange={(e) => setNewVolunteer(prev => ({ ...prev, phone: e.target.value }))}
+                              placeholder="+959123456789"
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor="volunteer-email">Email</Label>
+                            <Input
+                              id="volunteer-email"
+                              type="email"
+                              value={newVolunteer.email}
+                              onChange={(e) => setNewVolunteer(prev => ({ ...prev, email: e.target.value }))}
+                              placeholder="volunteer@example.com"
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor="volunteer-password">Password *</Label>
+                            <Input
+                              id="volunteer-password"
+                              type="password"
+                              value={newVolunteer.password}
+                              onChange={(e) => setNewVolunteer(prev => ({ ...prev, password: e.target.value }))}
+                              placeholder="Enter password"
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor="volunteer-role">Role *</Label>
+                            <Select 
+                              value={newVolunteer.role} 
+                              onValueChange={(value: 'tracking_volunteer' | 'supply_volunteer') => 
+                                setNewVolunteer(prev => ({ ...prev, role: value }))
+                              }
+                            >
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="tracking_volunteer">Tracking Volunteer</SelectItem>
+                                <SelectItem value="supply_volunteer">Supply Volunteer</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div>
+                            <Label htmlFor="volunteer-location">Location *</Label>
+                            <Input
+                              id="volunteer-location"
+                              value={newVolunteer.location}
+                              onChange={(e) => setNewVolunteer(prev => ({ ...prev, location: e.target.value }))}
+                              placeholder="Enter location"
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor="volunteer-assignment">Assignment</Label>
+                            <Input
+                              id="volunteer-assignment"
+                              value={newVolunteer.assignment}
+                              onChange={(e) => setNewVolunteer(prev => ({ ...prev, assignment: e.target.value }))}
+                              placeholder="Enter assignment details"
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor="volunteer-status">Status *</Label>
+                            <Select 
+                              value={newVolunteer.status} 
+                              onValueChange={(value: 'pending' | 'active') => 
+                                setNewVolunteer(prev => ({ ...prev, status: value }))
+                              }
+                            >
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="pending">Pending</SelectItem>
+                                <SelectItem value="active">Active</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                        <div className="flex gap-2 pt-4 border-t">
+                          <Button onClick={handleRegisterVolunteer} className="flex-1">
+                            <UserPlus className="w-4 h-4 mr-2" />
+                            Register Volunteer
+                          </Button>
+                          <Button 
+                            variant="outline"
+                            onClick={() => {
+                              setShowRegisterVolunteer(false)
+                              setNewVolunteer({
+                                name: '',
+                                phone: '',
+                                email: '',
+                                role: 'tracking_volunteer',
+                                location: '',
+                                assignment: '',
+                                status: 'pending',
+                                password: ''
+                              })
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                </div>
               </CardHeader>
               <CardContent>
                 <Table>
@@ -631,6 +1000,7 @@ export default function OrganizationPage() {
                       <TableHead>Volunteer</TableHead>
                       <TableHead>Role</TableHead>
                       <TableHead>Location</TableHead>
+                      <TableHead>Assignment</TableHead>
                       <TableHead>Assignments</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Actions</TableHead>
@@ -655,6 +1025,11 @@ export default function OrganizationPage() {
                           <div className="flex items-center gap-1">
                             <MapPin className="w-4 h-4 text-gray-500" />
                             {volunteer.location}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="text-sm text-gray-600">
+                            {volunteer.assignment || 'No assignment'}
                           </div>
                         </TableCell>
                         <TableCell>
@@ -693,22 +1068,271 @@ export default function OrganizationPage() {
             </Card>
           </TabsContent>
 
+          {/* Supply Management */}
+          <TabsContent value="supplies" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                <CardTitle className="flex items-center gap-2">
+                      <Warehouse className="w-5 h-5 text-blue-500" />
+                      Supply Management
+                </CardTitle>
+                <CardDescription>
+                      Manage your organization's supply inventory
+                </CardDescription>
+                  </div>
+                  <Dialog open={showAddSupply} onOpenChange={(open) => {
+                    setShowAddSupply(open)
+                    if (!open) {
+                      setEditingSupply(null)
+                      setSupplyForm({
+                        category: 'medical',
+                        name: '',
+                        quantity: 0,
+                        unit: '',
+                        location: '',
+                        expiryDate: '',
+                        notes: ''
+                      })
+                    }
+                  }}>
+                    <DialogTrigger asChild>
+                      <Button>
+                        <Plus className="w-4 h-4 mr-2" />
+                        Add Supply
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                      <DialogHeader>
+                        <DialogTitle>{editingSupply ? 'Edit Supply' : 'Add New Supply'}</DialogTitle>
+                      </DialogHeader>
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <Label htmlFor="supply-category">Category *</Label>
+                            <Select 
+                              value={supplyForm.category} 
+                              onValueChange={(value: Supply['category']) => 
+                                setSupplyForm(prev => ({ ...prev, category: value }))
+                              }
+                            >
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="medical">Medical</SelectItem>
+                                <SelectItem value="food">Food</SelectItem>
+                                <SelectItem value="water">Water</SelectItem>
+                                <SelectItem value="shelter">Shelter</SelectItem>
+                                <SelectItem value="equipment">Equipment</SelectItem>
+                                <SelectItem value="other">Other</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div>
+                            <Label htmlFor="supply-name">Name *</Label>
+                            <Input
+                              id="supply-name"
+                              value={supplyForm.name}
+                              onChange={(e) => setSupplyForm(prev => ({ ...prev, name: e.target.value }))}
+                              placeholder="Enter supply name"
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor="supply-quantity">Quantity *</Label>
+                            <Input
+                              id="supply-quantity"
+                              type="number"
+                              min="0"
+                              value={supplyForm.quantity}
+                              onChange={(e) => setSupplyForm(prev => ({ ...prev, quantity: parseInt(e.target.value) || 0 }))}
+                              placeholder="0"
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor="supply-unit">Unit *</Label>
+                            <Input
+                              id="supply-unit"
+                              value={supplyForm.unit}
+                              onChange={(e) => setSupplyForm(prev => ({ ...prev, unit: e.target.value }))}
+                              placeholder="e.g., packs, bottles, kits"
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor="supply-location">Location</Label>
+                            <Input
+                              id="supply-location"
+                              value={supplyForm.location}
+                              onChange={(e) => setSupplyForm(prev => ({ ...prev, location: e.target.value }))}
+                              placeholder="Warehouse, Storage Room, etc."
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor="supply-expiry">Expiry Date</Label>
+                            <Input
+                              id="supply-expiry"
+                              type="date"
+                              value={supplyForm.expiryDate}
+                              onChange={(e) => setSupplyForm(prev => ({ ...prev, expiryDate: e.target.value }))}
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <Label htmlFor="supply-notes">Notes</Label>
+                          <Textarea
+                            id="supply-notes"
+                            value={supplyForm.notes}
+                            onChange={(e) => setSupplyForm(prev => ({ ...prev, notes: e.target.value }))}
+                            placeholder="Additional notes about this supply"
+                            rows={3}
+                          />
+                        </div>
+                        <div className="flex gap-2 pt-4 border-t">
+                          <Button 
+                            onClick={editingSupply ? handleUpdateSupply : handleAddSupply} 
+                            className="flex-1"
+                          >
+                            <Package className="w-4 h-4 mr-2" />
+                            {editingSupply ? 'Update Supply' : 'Add Supply'}
+                          </Button>
+                          <Button 
+                            variant="outline"
+                            onClick={() => {
+                              setShowAddSupply(false)
+                              setEditingSupply(null)
+                              setSupplyForm({
+                                category: 'medical',
+                                name: '',
+                                quantity: 0,
+                                unit: '',
+                                location: '',
+                                expiryDate: '',
+                                notes: ''
+                              })
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Category</TableHead>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Quantity</TableHead>
+                      <TableHead>Location</TableHead>
+                      <TableHead>Expiry Date</TableHead>
+                      <TableHead>Last Updated</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {supplies.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-center py-8 text-gray-500">
+                          No supplies found. Add your first supply to get started.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      supplies.map((supply) => (
+                        <TableRow key={supply.id}>
+                          <TableCell>
+                            <Badge className={getCategoryColor(supply.category)}>
+                              {supply.category.charAt(0).toUpperCase() + supply.category.slice(1)}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div>
+                              <div className="font-medium">{supply.name}</div>
+                              {supply.notes && (
+                                <div className="text-xs text-gray-500 mt-1">{supply.notes}</div>
+                              )}
+                          </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1">
+                              <Package className="w-4 h-4 text-gray-500" />
+                              <span className="font-medium">{supply.quantity}</span>
+                              <span className="text-sm text-gray-500">{supply.unit}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            {supply.location ? (
+                            <div className="flex items-center gap-1">
+                                <MapPin className="w-4 h-4 text-gray-500" />
+                                <span className="text-sm">{supply.location}</span>
+                            </div>
+                            ) : (
+                              <span className="text-sm text-gray-400">Not specified</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {supply.expiryDate ? (
+                              <div className="text-sm">
+                                {supply.expiryDate.toLocaleDateString()}
+                                {supply.expiryDate < new Date() && (
+                                  <Badge variant="destructive" className="ml-2">Expired</Badge>
+                            )}
+                          </div>
+                            ) : (
+                              <span className="text-sm text-gray-400">N/A</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <div className="text-sm text-gray-500">
+                              {supply.lastUpdated.toLocaleDateString()}
+                        </div>
+                          </TableCell>
+                          <TableCell>
+                        <div className="flex items-center gap-2">
+                              <Button 
+                                size="sm" 
+                                variant="outline"
+                                onClick={() => handleEditSupply(supply)}
+                              >
+                                <Edit className="w-3 h-3" />
+                                </Button>
+                              <Button 
+                                size="sm" 
+                                variant="outline"
+                                onClick={() => handleDeleteSupply(supply.id)}
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
           {/* Statistics */}
           <TabsContent value="statistics" className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Accepted Requests Stats */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
                     <Check className="w-5 h-5 text-green-500" />
                     Accepted Requests
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
                     <div className="text-3xl font-bold text-green-600">
                       {helpRequests.filter(r => hasAcceptedItems(r)).length}
-                    </div>
+                          </div>
                     <p className="text-sm text-gray-600">
                       Total requests you have accepted
                     </p>
@@ -721,10 +1345,10 @@ export default function OrganizationPage() {
                             <div className="text-xs text-gray-500 mt-1">
                               {request.acceptedItems?.map(ai => `${ai.acceptedQuantity} ${ai.unit} ${ai.category}`).join(', ')}
                             </div>
-                          </div>
-                        ))}
-                    </div>
-                  </div>
+                                      </div>
+                                    ))}
+                                </div>
+                        </div>
                 </CardContent>
               </Card>
 
@@ -740,11 +1364,11 @@ export default function OrganizationPage() {
                   <div className="space-y-4">
                     <div className="text-3xl font-bold text-blue-600">
                       {helpRequests.filter(r => r.status === 'completed' && r.completedBy === user?.name).length}
-                    </div>
+                        </div>
                     <p className="text-sm text-gray-600">
                       Requests you have completed
                     </p>
-                    <div className="space-y-2">
+                                <div className="space-y-2">
                       {helpRequests
                         .filter(r => r.status === 'completed' && r.completedBy === user?.name)
                         .map((request) => (
@@ -752,13 +1376,13 @@ export default function OrganizationPage() {
                             <div className="font-medium text-sm">{request.title}</div>
                             <div className="text-xs text-gray-500 mt-1">
                               Completed on {request.completedAt?.toLocaleDateString()}
-                            </div>
-                          </div>
-                        ))}
-                    </div>
+                      </div>
+                                      </div>
+                                    ))}
+                                </div>
                   </div>
                 </CardContent>
-              </Card>
+                    </Card>
 
               {/* Supply Distribution */}
               <Card>
@@ -792,20 +1416,20 @@ export default function OrganizationPage() {
                           <div className="flex items-center gap-2">
                             <Package className="w-4 h-4 text-gray-500" />
                             <span className="font-medium">{item.category}</span>
-                          </div>
+                        </div>
                           <span className="text-sm text-gray-600">
                             {item.quantity} {item.unit}
                           </span>
-                        </div>
+                      </div>
                       ))}
                     {helpRequests.filter(r => hasAcceptedItems(r)).length === 0 && (
                       <p className="text-sm text-gray-500 text-center py-4">
                         No supplies distributed yet
                       </p>
                     )}
-                  </div>
-                </CardContent>
-              </Card>
+                </div>
+              </CardContent>
+            </Card>
 
               {/* Activity Timeline */}
               <Card>
@@ -841,9 +1465,9 @@ export default function OrganizationPage() {
                         No recent activity
                       </p>
                     )}
-                  </div>
-                </CardContent>
-              </Card>
+                </div>
+              </CardContent>
+            </Card>
             </div>
           </TabsContent>
 
@@ -879,15 +1503,15 @@ export default function OrganizationPage() {
                             <Users className="w-3 h-3" />
                             {org.activeCollaborations} active collaborations
                           </div>
+                          <div className="flex items-center gap-1">
+                            <MessageCircle className="w-3 h-3" />
+                            {org.phone}
+                          </div>
                         </div>
-                        <div className="mt-3 flex gap-2">
-                          <Button size="sm" variant="outline">
+                        <div className="mt-3">
+                          <Button size="sm" className="w-full">
                             <MessageCircle className="w-3 h-3 mr-1" />
-                            Contact
-                          </Button>
-                          <Button size="sm">
-                            <Handshake className="w-3 h-3 mr-1" />
-                            Collaborate
+                            Send Message
                           </Button>
                         </div>
                       </CardContent>
@@ -911,138 +1535,70 @@ export default function OrganizationPage() {
 
       {/* Detailed Request View Dialog */}
       <Dialog open={!!selectedRequest && !showAcceptDialog && !showCompleteDialog} onOpenChange={() => setSelectedRequest(null)}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <AlertTriangle className="w-5 h-5 text-orange-500" />
-              {selectedRequest?.title}
+              Help Request Details
             </DialogTitle>
           </DialogHeader>
           
           {selectedRequest && (
-            <div className="space-y-4">
-              {/* Image */}
-              {selectedRequest.image && (
-                <div className="w-full h-64 bg-gray-100 rounded-lg overflow-hidden">
-                  <img 
-                    src={selectedRequest.image} 
-                    alt={selectedRequest.title}
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-              )}
-
+            <div className="flex flex-col space-y-4 overflow-y-auto flex-1 pr-2">
               {/* Location */}
-              <div className="p-4 bg-blue-50 rounded-lg">
+              <div>
                 <div className="flex items-center gap-2 mb-2">
-                  <MapPin className="w-5 h-5 text-blue-600" />
-                  <span className="font-medium">Location</span>
+                  <MapPin className="w-4 h-4 text-blue-600" />
+                  <span className="font-medium text-sm">Location</span>
                 </div>
-                <p className="text-gray-700">{selectedRequest.location}</p>
-                <Button 
-                  size="sm" 
-                  variant="outline" 
-                  className="mt-2"
-                  onClick={() => handleViewOnMap(selectedRequest)}
-                >
-                  <Navigation className="w-4 h-4 mr-2" />
-                  View on Map
-                </Button>
+                <p className="text-gray-700 text-sm pl-6">{selectedRequest.location}</p>
               </div>
 
               {/* Description */}
               <div>
-                <h4 className="font-medium mb-2">Description</h4>
-                <p className="text-gray-700">{selectedRequest.description}</p>
+                <h4 className="font-medium mb-2 text-sm">Description</h4>
+                <p className="text-gray-700 text-sm">{selectedRequest.description}</p>
               </div>
 
               {/* Required Items Table */}
               <div>
-                <h4 className="font-medium mb-3">Required Items</h4>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Category</TableHead>
-                      <TableHead>Unit</TableHead>
-                      <TableHead>Original Quantity</TableHead>
-                      <TableHead>Remaining Quantity</TableHead>
-                      <TableHead>Status</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {selectedRequest.requiredItems.map((item, idx) => {
-                      const remaining = getRemainingQuantity(selectedRequest, item.category)
-                      const accepted = selectedRequest.acceptedItems?.find(ai => ai.category === item.category)
-                      return (
+                <h4 className="font-medium mb-3 text-sm">Required Items</h4>
+                <div className="border rounded-lg overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="text-xs">Category</TableHead>
+                        <TableHead className="text-xs">Unit</TableHead>
+                        <TableHead className="text-xs">Quantity</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {selectedRequest.requiredItems.map((item, idx) => (
                         <TableRow key={idx}>
-                          <TableCell className="font-medium">{item.category}</TableCell>
-                          <TableCell>{item.unit}</TableCell>
-                          <TableCell>{item.quantity}</TableCell>
-                          <TableCell>
-                            <span className={remaining > 0 ? 'text-red-600 font-medium' : 'text-green-600'}>
-                              {remaining}
-                            </span>
-                          </TableCell>
-                          <TableCell>
-                            {accepted ? (
-                              <Badge className="bg-green-100 text-green-800">
-                                <Check className="w-3 h-3 mr-1" />
-                                {accepted.acceptedQuantity} accepted by {accepted.acceptedBy}
-                              </Badge>
-                            ) : (
-                              <Badge className="bg-yellow-100 text-yellow-800">Pending</Badge>
-                            )}
-                          </TableCell>
+                          <TableCell className="text-sm font-medium">{item.category}</TableCell>
+                          <TableCell className="text-sm">{item.unit}</TableCell>
+                          <TableCell className="text-sm">{item.quantity}</TableCell>
                         </TableRow>
-                      )
-                    })}
-                  </TableBody>
-                </Table>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
               </div>
 
-              {/* Action Buttons */}
-              <div className="flex gap-2 pt-4 border-t">
-                {selectedRequest.status !== 'completed' && (
-                  <>
-                    <Button 
-                      onClick={() => {
-                        setShowAcceptDialog(true)
-                      }}
-                      className="flex-1"
-                    >
-                      <Check className="w-4 h-4 mr-2" />
-                      Accept Request
-                    </Button>
-                    {hasAcceptedItems(selectedRequest) && (
-                      <Button 
-                        variant="outline"
-                        onClick={() => {
-                          setShowCompleteDialog(true)
-                        }}
-                        className="flex-1"
-                      >
-                        <Upload className="w-4 h-4 mr-2" />
-                        Mark as Done
-                      </Button>
-                    )}
-                  </>
-                )}
-                {selectedRequest.status === 'completed' && selectedRequest.proofImage && (
-                  <div className="w-full">
-                    <h4 className="font-medium mb-2">Proof of Delivery</h4>
-                    <div className="w-full h-48 bg-gray-100 rounded-lg overflow-hidden">
-                      <img 
-                        src={selectedRequest.proofImage} 
-                        alt="Proof of delivery"
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
-                    <p className="text-sm text-gray-500 mt-2">
-                      Completed by {selectedRequest.completedBy} on {selectedRequest.completedAt?.toLocaleString()}
-                    </p>
-                  </div>
-                )}
-              </div>
+              {/* Accept Request Button */}
+              {selectedRequest.status !== 'completed' && (
+                <div className="pt-2 border-t">
+                  <Button 
+                    onClick={() => {
+                      setShowAcceptDialog(true)
+                    }}
+                    className="w-full"
+                  >
+                    <Check className="w-4 h-4 mr-2" />
+                    Accept Request
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </DialogContent>
