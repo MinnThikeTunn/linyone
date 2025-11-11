@@ -6,9 +6,6 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { 
   Heart, 
@@ -25,11 +22,13 @@ import {
   Lock,
   Play,
   Award,
-  Settings
+  Settings,
+  
 } from 'lucide-react'
 import { useLanguage } from '@/hooks/use-language'
 import { useAuth } from '@/hooks/use-auth'
-import { fetchFamilyMembers, sendMessage, sendFamilyRequest, findUsers, removeFamilyMemberById } from '@/services/family'
+import FamilyTab from '@/components/family-tab'
+import { fetchFamilyMembers } from '@/services/family'
 
 
 interface FamilyMember {
@@ -188,26 +187,7 @@ export default function DashboardPage() {
     return () => { mounted = false }
   }, [isAuthenticated, user?.id])
 
-  const handleSendSafetyCheck = async (memberId: string) => {
-    if (!user?.id) return
-    try {
-      // memberId here corresponds to the member.user id
-      await sendMessage(user.id, memberId, 'Are you okay?')
-      // optimistic UI / feedback
-      alert('Safety check sent')
-    } catch (err) {
-      console.error(err)
-      alert('Failed to send safety check')
-    }
-  }
 
-  const handleMarkSafe = (memberId: string) => {
-    setFamilyMembers(familyMembers.map(member => 
-      member.id === memberId 
-        ? { ...member, status: 'safe', lastSeen: new Date() }
-        : member
-    ))
-  }
 
   const handleStartModule = (moduleId: string) => {
     setSafetyModules(modules => modules.map(module => 
@@ -242,8 +222,8 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4">
-      <div className="max-w-[90rem] mx-auto">
+    <div className="min-h-screen bg-gray-50">
+      <div className="max-w-[90rem] mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">
@@ -252,8 +232,8 @@ export default function DashboardPage() {
           <p className="text-gray-600">Manage your family safety and learning progress</p>
         </div>
 
-        {/* Quick Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+    {/* Quick Stats */}
+  <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-12 md:mb-8">
           <Card>
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
@@ -304,244 +284,42 @@ export default function DashboardPage() {
         </div>
 
         <Tabs defaultValue="family" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="family" className="flex items-center gap-2">
+          <TabsList className="flex flex-col sm:flex-row w-full gap-2">
+            <TabsTrigger value="family" className="flex items-center gap-2 w-full sm:w-auto justify-start">
               <Users className="w-4 h-4" />
               {t('dashboard.familyMembers')}
             </TabsTrigger>
-            <TabsTrigger value="safety" className="flex items-center gap-2">
+            <TabsTrigger value="safety" className="flex items-center gap-2 w-full sm:w-auto justify-start">
               <Shield className="w-4 h-4" />
               {t('dashboard.safetyModules')}
             </TabsTrigger>
-            <TabsTrigger value="alerts" className="flex items-center gap-2">
+            <TabsTrigger value="alerts" className="flex items-center gap-2 w-full sm:w-auto justify-start">
               <AlertTriangle className="w-4 h-4" />
               {t('dashboard.recentAlerts')}
             </TabsTrigger>
           </TabsList>
 
           {/* Family Locator Tab */}
-          <TabsContent value="family" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="flex items-center gap-2">
-                      <Heart className="w-5 h-5 text-red-500" />
-                      {t('family.title')}
-                    </CardTitle>
-                    <CardDescription>
-                      Track your family members' safety status
-                    </CardDescription>
-                  </div>
-                  <Dialog open={showAddMember} onOpenChange={setShowAddMember}>
-                    <DialogTrigger asChild>
-                      <Button className="flex items-center gap-2">
-                        <Plus className="w-4 h-4" />
-                        {t('family.addMember')}
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent>
-                      <DialogHeader>
-                        <DialogTitle>{t('family.addMember')}</DialogTitle>
-                      </DialogHeader>
-                      <div className="space-y-4">
-                        <div>
-                          <Label htmlFor="member-identifier">Search by phone, email or name</Label>
-                          <div className="flex gap-2">
-                            <Input
-                              id="member-identifier"
-                              value={searchIdentifier}
-                              onChange={(e) => {
-                                const v = e.target.value
-                                setSearchIdentifier(v)
-                                // debounce search on keyup/typing
-                                if (searchTimeout) clearTimeout(searchTimeout)
-                                const t = setTimeout(async () => {
-                                  if (!v) {
-                                    setSearchResults([])
-                                    setSelectedFound(null)
-                                    return
-                                  }
-                                  // protect admin: do not allow searching
-                                  if (user?.isAdmin) {
-                                    setSearchResults([])
-                                    setSelectedFound(null)
-                                    return
-                                  }
-                                  setSearching(true)
-                                  try {
-                                    const results = await findUsers(v)
-                                    setSearchResults(results || [])
-                                    setSelectedFound(null)
-                                  } catch (err) {
-                                    console.error('search users failed', err)
-                                    setSearchResults([])
-                                  } finally {
-                                    setSearching(false)
-                                  }
-                                }, 400)
-                                setSearchTimeout(t)
-                              }}
-                              onKeyUp={() => {
-                                /* keyup handled via debounce in onChange */
-                              }}
-                              placeholder="phone, email or name"
-                              disabled={user?.isAdmin}
-                            />
-                          </div>
-                        </div>
-
-                        {searchResults.length > 0 && (
-                          <div className="space-y-2 max-h-48 overflow-auto">
-                            {searchResults.map((r) => (
-                              <div key={r.id} className={`p-2 border rounded flex items-center justify-between ${selectedFound?.id === r.id ? 'bg-blue-50' : 'hover:bg-gray-50'}`}>
-                                <div>
-                                  <div className="font-medium">{r.name}</div>
-                                  <div className="text-xs text-gray-500">{r.email || r.phone}</div>
-                                </div>
-                                <div>
-                                  <Button size="sm" onClick={() => setSelectedFound(r)}>
-                                    Select
-                                  </Button>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-
-                        {selectedFound && (
-                          <div className="p-2 border rounded bg-white">
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <div className="font-medium">{selectedFound.name}</div>
-                                <div className="text-xs text-gray-500">{selectedFound.email || selectedFound.phone}</div>
-                              </div>
-                              <div className="flex gap-2">
-                                <Button size="sm" onClick={async () => {
-                                  if (!user?.id || !selectedFound?.id || !memberRelation.trim()) {
-                                    alert('Please specify the relation before sending request')
-                                    return
-                                  }
-                                  try {
-                                    const res = await sendFamilyRequest(user.id, selectedFound.id, memberRelation)
-                                    if (res?.success) {
-                                      alert('Family request sent! Waiting for approval.')
-                                      setSearchIdentifier('')
-                                      setSearchResults([])
-                                      setSelectedFound(null)
-                                      setMemberRelation('')
-                                      setShowAddMember(false)
-                                      return
-                                    }
-                                    if (res?.error === 'already_linked') {
-                                      alert('This member is already in your family network.')
-                                    } else if (res?.error === 'request_already_sent') {
-                                      alert('You have already sent a request to this person.')
-                                    } else {
-                                      console.warn('request not successful', res?.error)
-                                      alert('Failed to send request. Please try again.')
-                                    }
-                                  } catch (err) {
-                                    console.error('send request failed', err)
-                                    alert('An error occurred. Please try again.')
-                                  }
-                                }}>Send Request</Button>
-                                <Button size="sm" variant="outline" onClick={() => setSelectedFound(null)}>Cancel</Button>
-                              </div>
-                            </div>
-                            
-                            <div className="mt-3">
-                              <Label htmlFor="member-relation">Relation (Required) <span className="text-red-500">*</span></Label>
-                              <Input
-                                id="member-relation"
-                                value={memberRelation}
-                                onChange={(e) => setMemberRelation(e.target.value)}
-                                placeholder="e.g., Mother, Father, Brother, Sister"
-                                required
-                              />
-                              <p className="text-xs text-gray-500 mt-1">Specify your relationship to this person</p>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </DialogContent>
-                  </Dialog>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {familyMembers.map((member) => (
-                    <div key={member.id} className="flex items-center justify-between p-4 border rounded-lg">
-                      <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                          <Users className="w-5 h-5 text-blue-600" />
-                        </div>
-                        <div>
-                          <h3 className="font-medium">{member.name}</h3>
-                          <p className="text-sm text-gray-600">{member.phone}</p>
-                          <p className="text-xs text-gray-500">ID: {member.uniqueId}</p>
-                          {selectedFound && (
-                            <p className="text-xs text-gray-500 flex items-center gap-1 mt-1">
-                              <MapPin className="w-3 h-3" />
-                              {member.location?.address}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        <div className="flex gap-1">
-                          <Button size="sm" variant="outline" onClick={() => handleSendSafetyCheck(member.id)}>
-                            <MessageCircle className="w-3 h-3 mr-1" />
-                            {t('family.areYouOk')}
-                          </Button>
-                          {member.status !== 'safe' && (
-                            <Button size="sm" onClick={() => handleMarkSafe(member.id)}>
-                              <CheckCircle className="w-3 h-3 mr-1" />
-                              {t('family.markDone')}
-                            </Button>
-                          )}
-                          <Button size="sm" variant="destructive" onClick={async () => {
-                            if (!user?.id) return
-                            try {
-                              const res = await removeFamilyMemberById(user.id, member.id)
-                              if (res?.success) {
-                                const links = await fetchFamilyMembers(user.id)
-                                const mapped = (links || []).map((l: any) => ({
-                                  id: l.member?.id ?? l.id,
-                                  name: l.member?.name ?? 'Unknown',
-                                  phone: l.member?.phone ?? '',
-                                  uniqueId: l.member?.id ?? l.id,
-                                  status: 'unknown'
-                                }))
-                                const seen3 = new Set<string>()
-                                const deduped3 = mapped.filter((m) => {
-                                  const key = m.id
-                                  if (!key) return false
-                                  if (seen3.has(key)) return false
-                                  seen3.add(key)
-                                  return true
-                                })
-                                setFamilyMembers(deduped3)
-                              } else {
-                                console.warn('unlink failed', res?.error)
-                                alert('Failed to unlink member')
-                              }
-                            } catch (err) {
-                              console.error(err)
-                              alert('Failed to unlink member')
-                            }
-                          }}>
-                            Unlink
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
+          <FamilyTab
+            t={t}
+            user={user}
+            familyMembers={familyMembers}
+            setFamilyMembers={setFamilyMembers}
+            showAddMember={showAddMember}
+            setShowAddMember={setShowAddMember}
+            searchIdentifier={searchIdentifier}
+            setSearchIdentifier={setSearchIdentifier}
+            searchResults={searchResults}
+            setSearchResults={setSearchResults}
+            selectedFound={selectedFound}
+            setSelectedFound={setSelectedFound}
+            searching={searching}
+            setSearching={setSearching}
+            searchTimeout={searchTimeout}
+            setSearchTimeout={setSearchTimeout}
+            memberRelation={memberRelation}
+            setMemberRelation={setMemberRelation}
+          />
 
           {/* Safety Modules Tab */}
           <TabsContent value="safety" className="space-y-6">
@@ -621,7 +399,7 @@ export default function DashboardPage() {
           </TabsContent>
 
           {/* Recent Alerts Tab */}
-          <TabsContent value="alerts" className="space-y-6">
+          <TabsContent value="alerts" className="space-y-6 pb-8">
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
