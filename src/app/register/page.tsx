@@ -116,9 +116,6 @@ export default function RegisterPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-center">{t('auth.createAccount')}</CardTitle>
-            <CardDescription className="text-center">
-              Join our earthquake response community
-            </CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleRegister} className="space-y-4">
@@ -129,7 +126,6 @@ export default function RegisterPage() {
               )}
               
               <div className="flex flex-col gap-2">
-                <Label>{t('auth.accountType') ?? 'Account Type'}</Label>
                 <ToggleGroup
                   type="single"
                   value={registerForm.accountType}
@@ -137,19 +133,13 @@ export default function RegisterPage() {
                   className="w-full"
                 >
                   <ToggleGroupItem value="user" className="flex-1">
-                    <div className="flex flex-col items-center gap-1 py-1">
+                    <div className="flex items-center justify-center py-1">
                       <span className="text-sm font-medium">User</span>
-                      <span className="text-xs text-muted-foreground text-center">
-                        Access donation and reporting tools
-                      </span>
                     </div>
                   </ToggleGroupItem>
                   <ToggleGroupItem value="organization" className="flex-1">
-                    <div className="flex flex-col items-center gap-1 py-1">
+                    <div className="flex items-center justify-center py-1">
                       <span className="text-sm font-medium">Organization</span>
-                      <span className="text-xs text-muted-foreground text-center">
-                        Manage response teams and resources
-                      </span>
                     </div>
                   </ToggleGroupItem>
                 </ToggleGroup>
@@ -204,22 +194,22 @@ export default function RegisterPage() {
                     required
                   />
                 </div>
-
-                {registerForm.accountType === 'organization' && (
-                  <div className="space-y-2">
-                    <Label htmlFor="address">Organization Address</Label>
-                    <Input
-                      id="address"
-                      name="address"
-                      type="text"
-                      value={registerForm.address}
-                      onChange={handleInputChange}
-                      placeholder="Enter organization address"
-                      required
-                    />
-                  </div>
-                )}
               </div>
+
+              {registerForm.accountType === 'organization' && (
+                <div className="space-y-2">
+                  <Label htmlFor="address">Organization Address</Label>
+                  <Input
+                    id="address"
+                    name="address"
+                    type="text"
+                    value={registerForm.address}
+                    onChange={handleInputChange}
+                    placeholder="Enter organization address"
+                    required
+                  />
+                </div>
+              )}
               
               {/* Removed role-based organization selection */}
               
@@ -234,6 +224,7 @@ export default function RegisterPage() {
                       value={registerForm.password}
                       onChange={handleInputChange}
                       placeholder="Enter password"
+                      className="pr-10"
                       required
                     />
                     <Button
@@ -262,6 +253,7 @@ export default function RegisterPage() {
                       value={registerForm.confirmPassword}
                       onChange={handleInputChange}
                       placeholder="Confirm password"
+                      className="pr-10"
                       required
                     />
                     <Button

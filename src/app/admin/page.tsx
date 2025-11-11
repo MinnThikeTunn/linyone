@@ -104,7 +104,7 @@ export default function AdminPage() {
 
   // Redirect non-admin users
   useEffect(() => {
-    if (user && user.role !== 'admin') {
+    if (user && !user.isAdmin) {
       window.location.href = '/'
     }
   }, [user])
@@ -213,7 +213,7 @@ export default function AdminPage() {
     return sum + amount
   }, 0)
 
-  if (!user || user.role !== 'admin') {
+  if (!user || !user.isAdmin) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <Alert className="max-w-md">
@@ -228,7 +228,7 @@ export default function AdminPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 p-4">
-      <div className="max-w-7xl mx-auto">
+      <div className="max-w-[90rem] mx-auto">
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">

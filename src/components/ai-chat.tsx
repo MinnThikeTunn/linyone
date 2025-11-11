@@ -97,7 +97,7 @@ export default function AIChatAssistant() {
       type: 'assistant',
       content: language === 'en' 
         ? 'Hello! I\'m your AI assistant for earthquake safety and emergency response. How can I help you today?'
-        : 'မင်္ဂလာပါ! ကျွန်ုပ်သည် ငလက်ချောင်းလုံခြုံရေးနှင့် အရေးပေါ်တုန်းဆိုင်းမှု AI လက်ထောက်ဖြစ်ပါသည်။ ကျွန်ုပ်ကို ဘယ်လိုကူညီနိုင်ပါသလဲ?',
+        : 'မင်္ဂလာပါ! ကျွန်ုပ်သည် ငလျင်လုံခြုံရေးနှင့် အရေးပေါ်တုန်းဆိုင်းမှု AI လက်ထောက်ဖြစ်ပါသည်။ ကျွန်ုပ်ကို ဘယ်လိုကူညီနိုင်ပါသလဲ?',
       timestamp: new Date(),
       category: 'general'
     }
@@ -119,7 +119,7 @@ export default function AIChatAssistant() {
     const lowerMessage = userMessage.toLowerCase()
     
     // Check for keywords and provide relevant responses
-    if (lowerMessage.includes('earthquake') || lowerMessage.includes('ငလက်ချောင်း')) {
+    if (lowerMessage.includes('earthquake') || lowerMessage.includes('ငလျင်')) {
       return mockResponses['earthquake']
     } else if (lowerMessage.includes('shelter') || lowerMessage.includes('ခိုလှုံရာ')) {
       return mockResponses['shelter']
@@ -133,7 +133,7 @@ export default function AIChatAssistant() {
       // Default response
       return language === 'en'
         ? 'I understand you need help with emergency preparedness. For specific assistance, you can ask about earthquake safety, finding shelters, first aid, emergency contacts, or emergency kits. If this is a real emergency, please call 199 immediately.'
-        : 'အရေးပေါ်ပြင်ဆင်မှုအတွက် ကူညီမှုလိုအပ်ကြောင်း ကျွန်ုပ်နားလည်ပါသည်။ သီးခြားအကူအညီများအတွက် ငလက်ချောင်းလုံခြုံရေး၊ ခိုလှုံရာရှာဖွေခြင်း၊ ပထမအကူအညီ၊ အရေးပေါ်ဆက်သွယ်ရန် ဖုန်းနံပါတ်များ သို့မဟုတ် အရေးပေါ်အသုံးအဆောင်ပစ္စည်းများအကြောင်း မေးနိုင်ပါသည်။ အကယ်၍ ဤသည် အရေးပေါ်အခြေအနေဖြစ်ပါက ချက်ချင်း 199 ကိုခေါ်ပါ။'
+        : 'အရေးပေါ်ပြင်ဆင်မှုအတွက် ကူညီမှုလိုအပ်ကြောင်း ကျွန်ုပ်နားလည်ပါသည်။ သီးခြားအကူအညီများအတွက် ငလျင်လုံခြုံရေး၊ ခိုလှုံရာရှာဖွေခြင်း၊ ပထမအကူအညီ၊ အရေးပေါ်ဆက်သွယ်ရန် ဖုန်းနံပါတ်များ သို့မဟုတ် အရေးပေါ်အသုံးအဆောင်ပစ္စည်းများအကြောင်း မေးနိုင်ပါသည်။ အကယ်၍ ဤသည် အရေးပေါ်အခြေအနေဖြစ်ပါက ချက်ချင်း 199 ကိုခေါ်ပါ။'
     }
   }
 
@@ -222,7 +222,7 @@ export default function AIChatAssistant() {
           <div>
             <h3 className="font-semibold">AI Assistant</h3>
             <p className="text-xs opacity-90">
-              {language === 'en' ? 'Earthquake Safety & Emergency' : 'ငလက်ချောင်းလုံခြုံရေးနှင့် အရေးပေါ်'}
+              {language === 'en' ? 'Earthquake Safety & Emergency' : 'ငလျင်လုံခြုံရေးနှင့် အရေးပေါ်'}
             </p>
           </div>
         </div>
@@ -332,7 +332,7 @@ export default function AIChatAssistant() {
             placeholder={
               language === 'en'
                 ? 'Ask about earthquake safety, shelters, first aid...'
-                : 'ငလက်ချောင်းလုံခြုံရေး၊ ခိုလှုံရာများ၊ ပထမအကူအညီအကြောင်း မေးပါ...'
+                : 'ငလျင်လုံခြုံရေး၊ ခိုလှုံရာများ၊ ပထမအကူအညီအကြောင်း မေးပါ...'
             }
             className="flex-1"
             disabled={isTyping}

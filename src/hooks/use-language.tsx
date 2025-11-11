@@ -178,7 +178,7 @@ const translations = {
     "nav.logout": "ထွက်ရန်",
 
     // Map
-    "map.title": "ငလက်ချောင်းတုန်လှုပ်မှုအသုံးချမြေပုံ",
+    "map.title": "ငလျင်တုန်လှုပ်မှုအသုံးချမြေပုံ",
     "map.subtitle": "အချိန်နှင့်တပြေးညီသတိပေးချက်များနှင့် လုံခြုံရေးဇုန်များ",
     "map.currentLocation": "လက်ရှိတည်နေရာ",
     "map.addPin": "ပင်ထည့်ရန်",
@@ -234,7 +234,7 @@ const translations = {
     "safety.title": "လုံခြုံရေးသင်တန်းမော်ဂျူးများ",
     "safety.cpr": "CPR သင်တန်း",
     "safety.firstAid": "ပထမအကူအညီ",
-    "safety.earthquake": "ငလက်ချောင်းလုံခြုံရေး",
+    "safety.earthquake": "ငလျင်လုံခြုံရေး",
     "safety.emergency": "အရေးပေါ်ပြင်ဆင်မှု",
     "safety.locked": "�ပိတ်ထားသည် - ဖွင့်ရန်စာရင်းသွင်းပါ",
     "safety.progress": "တိုးတက်မှု",

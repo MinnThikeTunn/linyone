@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/hooks/use-toast";
 import {
   Dialog,
   DialogContent,
@@ -40,6 +41,15 @@ import {
 } from "lucide-react";
 import { useLanguage } from "@/hooks/use-language";
 import { useAuth } from "@/hooks/use-auth";
+import {
+  createPin,
+  fetchPins,
+  updatePinStatus,
+  isUserActiveTracker,
+  getUserOrgMember,
+  deletePin,
+  type Pin as SupabasePin,
+} from "@/services/pins";
 
 // Add Mapbox GL JS
 import mapboxgl from "mapbox-gl";
@@ -113,7 +123,8 @@ const mockPins: Pin[] = [
 export default function HomePage() {
   const { t, language } = useLanguage();
   const { user, isAuthenticated } = useAuth();
-  const [pins, setPins] = useState<Pin[]>(mockPins);
+  const { toast } = useToast();
+  const [pins, setPins] = useState<Pin[]>([]);
   const [selectedPin, setSelectedPin] = useState<Pin | null>(null);
   const [showPinDialog, setShowPinDialog] = useState(false);
   const [pinType, setPinType] = useState<"damaged" | "safe">("damaged");
@@ -136,6 +147,9 @@ export default function HomePage() {
     lat: number;
     lng: number;
   } | null>(null);
+  const [isCreatingPin, setIsCreatingPin] = useState(false);
+  const [isUserTracker, setIsUserTracker] = useState(false);
+  const [userOrgMemberId, setUserOrgMemberId] = useState<string | null>(null);
 
   // Mapbox map reference
   const mapContainer = useRef<HTMLDivElement>(null);
@@ -154,6 +168,53 @@ export default function HomePage() {
     }
     return true;
   });
+
+  // Load pins from database on mount and when user changes
+  useEffect(() => {
+    const loadPinsAndUserRole = async () => {
+      try {
+        // Fetch pins from database
+        const pinsResult = await fetchPins();
+        if (pinsResult.success && pinsResult.pins) {
+          setPins(pinsResult.pins);
+          console.log(`Loaded ${pinsResult.pins.length} pins from database`);
+        } else if (!pinsResult.success) {
+          console.warn("Failed to load pins:", pinsResult.error);
+          // Still show a message but don't crash
+          if (pinsResult.error) {
+            toast({
+              title: "Warning",
+              description: `Could not load pins: ${pinsResult.error}`,
+              variant: "destructive",
+            });
+          }
+        }
+
+        // Check if current user is a tracker
+        if (user?.id) {
+          try {
+            const isTracker = await isUserActiveTracker(user.id);
+            setIsUserTracker(isTracker);
+            console.log(`User tracker status: ${isTracker}`);
+
+            if (isTracker) {
+              const orgMember = await getUserOrgMember(user.id);
+              if (orgMember) {
+                setUserOrgMemberId(orgMember.id);
+                console.log(`User org-member ID: ${orgMember.id}`);
+              }
+            }
+          } catch (err) {
+            console.error("Error checking tracker status:", err);
+          }
+        }
+      } catch (error) {
+        console.error("Error loading pins and user role:", error);
+      }
+    };
+
+    loadPinsAndUserRole();
+  }, [user?.id, toast]);
 
   useEffect(() => {
     // Initialize Mapbox map
@@ -382,66 +443,252 @@ export default function HomePage() {
     }
   };
 
-  const handleCreatePin = () => {
+  const handleCreatePin = async () => {
     if (!pinPhone || !pinDescription) return;
 
-    // Use selected location or map center
-    const location = newPinLocation || mapCenter;
+    setIsCreatingPin(true);
+    try {
+      // Use selected location or map center
+      const location = newPinLocation || mapCenter;
 
-    const newPin: Pin = {
-      id: Date.now().toString(),
-      type: pinType,
-      status: userRole === "tracking_volunteer" ? "confirmed" : "pending",
-      phone: pinPhone,
-      description: pinDescription,
-      lat: location.lat,
-      lng: location.lng,
-      createdBy: user?.name || "Anonymous User",
-      createdAt: new Date(),
-      image: pinImage ? URL.createObjectURL(pinImage) : undefined,
-    };
+      // Call Supabase service to create pin with user role for status determination
+      const result = await createPin(
+        {
+          type: pinType,
+          status: "pending", // Will be set by database based on user role
+          phone: pinPhone,
+          description: pinDescription,
+          lat: location.lat,
+          lng: location.lng,
+          createdBy: user?.name || "Anonymous User",
+          user_id: user?.id ?? null,
+          image: undefined,
+        },
+        pinImage || undefined,
+        user?.role // Pass user role for status determination
+      );
 
-    setPins([newPin, ...pins]);
-    setPinPhone("");
-    setPinDescription("");
-    setPinImage(null);
-    setShowPinDialog(false);
-    setNewPinLocation(null);
-    setIsSelectingLocation(false);
+      if (result.success && result.pin) {
+        // Add new pin to local state
+        setPins([result.pin, ...pins]);
 
-    // Remove temp marker
-    if (tempMarker.current) {
-      tempMarker.current.remove();
-      tempMarker.current = null;
-    }
+        // Reset form
+        setPinPhone("");
+        setPinDescription("");
+        setPinImage(null);
+        setShowPinDialog(false);
+        setNewPinLocation(null);
+        setIsSelectingLocation(false);
 
-    // Fly to new pin location
-    if (map.current) {
-      map.current.flyTo({
-        center: [newPin.lng, newPin.lat],
-        zoom: 14,
+        // Remove temp marker
+        if (tempMarker.current) {
+          tempMarker.current.remove();
+          tempMarker.current = null;
+        }
+
+        // Fly to new pin location
+        if (map.current) {
+          map.current.flyTo({
+            center: [result.pin.lng, result.pin.lat],
+            zoom: 14,
+          });
+        }
+
+        toast({
+          title: "Success",
+          description: "Pin created successfully",
+        });
+      } else {
+        toast({
+          title: "Error",
+          description: result.error || "Failed to create pin",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error("Error creating pin:", error);
+      toast({
+        title: "Error",
+        description: "Failed to create pin",
+        variant: "destructive",
       });
+    } finally {
+      setIsCreatingPin(false);
     }
   };
 
-  const handleConfirmPin = (pinId: string) => {
-    setPins(
-      pins.map((pin) =>
-        pin.id === pinId ? { ...pin, status: "confirmed" } : pin
-      )
-    );
+  const handleConfirmPin = async (pinId: string) => {
+    try {
+      // Verify user is authenticated and is a tracker before attempting confirmation
+      if (!user?.id) {
+        toast({
+          title: "Error",
+          description: "You must be logged in to confirm pins",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (!isUserTracker) {
+        toast({
+          title: "Error",
+          description: "Only trackers can confirm pins",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const result = await updatePinStatus(
+        pinId,
+        "confirmed",
+        userOrgMemberId || undefined,
+        user.id // Pass userId for authorization check
+      );
+
+      if (result.success) {
+        setPins(
+          pins.map((pin) =>
+            pin.id === pinId ? { ...pin, status: "confirmed" } : pin
+          )
+        );
+        toast({
+          title: "Success",
+          description: "Pin confirmed successfully",
+        });
+      } else {
+        toast({
+          title: "Error",
+          description: result.error || "Failed to confirm pin",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error("Error confirming pin:", error);
+      toast({
+        title: "Error",
+        description: "Failed to confirm pin",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleDenyPin = (pinId: string) => {
     setPins(pins.filter((pin) => pin.id !== pinId));
   };
 
-  const handleMarkCompleted = (pinId: string) => {
-    setPins(
-      pins.map((pin) =>
-        pin.id === pinId ? { ...pin, status: "completed" } : pin
-      )
-    );
+  const handleMarkCompleted = async (pinId: string) => {
+    try {
+      // Verify user is authenticated and is a tracker
+      if (!user?.id) {
+        toast({
+          title: "Error",
+          description: "You must be logged in to update pins",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (!isUserTracker) {
+        toast({
+          title: "Error",
+          description: "Only trackers can mark pins as completed",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const result = await updatePinStatus(
+        pinId,
+        "completed",
+        undefined,
+        user.id
+      );
+
+      if (result.success) {
+        setPins(
+          pins.map((pin) =>
+            pin.id === pinId ? { ...pin, status: "completed" } : pin
+          )
+        );
+        toast({
+          title: "Success",
+          description: "Pin marked as completed",
+        });
+      } else {
+        toast({
+          title: "Error",
+          description: result.error || "Failed to mark pin as completed",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error("Error marking pin completed:", error);
+      toast({
+        title: "Error",
+        description: "Failed to mark pin as completed",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDeletePin = async (pinId: string) => {
+    try {
+      // Verify user is organization
+      if (!user?.id) {
+        toast({
+          title: "Error",
+          description: "You must be logged in to delete pins",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (user?.role !== "organization") {
+        toast({
+          title: "Error",
+          description: "Only organizations can delete pins",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Add animation before deletion
+      // Find the pin on map and remove it with animation
+      const pinElement = document.querySelector(`[data-pin-id="${pinId}"]`);
+      if (pinElement) {
+        pinElement.classList.add("animate-bounce", "opacity-50");
+        await new Promise((resolve) => setTimeout(resolve, 300)); // Animation delay
+      }
+
+      // Delete from database
+      const result = await deletePin(pinId, user.id, user.role);
+
+      if (result.success) {
+        // Remove from UI with animation
+        setPins(pins.filter((pin) => pin.id !== pinId));
+
+        // Close the dialog
+        setSelectedPin(null);
+
+        toast({
+          title: "Success",
+          description: "Pin deleted successfully",
+        });
+      } else {
+        toast({
+          title: "Error",
+          description: result.error || "Failed to delete pin",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error("Error deleting pin:", error);
+      toast({
+        title: "Error",
+        description: "Failed to delete pin",
+        variant: "destructive",
+      });
+    }
   };
 
   const getStatusColor = (status: string) => {
@@ -472,12 +719,12 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <div className="max-w-[90rem] mx-auto px-4 sm:px-6 lg:px-8 py-6">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Map Area */}
           <div className="lg:col-span-2">
             {/* Header */}
-            <div className="max-w-7xl mx-auto py-4">
+            <div className="max-w-[90rem] mx-auto py-4">
               {/* <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"> */}
               <div className="flex items-center gap-2 w-full">
                 <Button
@@ -505,16 +752,19 @@ export default function HomePage() {
                     }
                   }}
                 >
-                  <DialogTrigger asChild>
-                    <Button
-                      // variant="outline"
-                      size="sm"
-                      className="flex items-center gap-2 w-1/2 bg-black"
-                    >
-                      <Plus className="w-4 h-4" />
-                      {t("map.addPin")}
-                    </Button>
-                  </DialogTrigger>
+                  {/* Hide "Add Pin" button for organizations - they only manage pins */}
+                  {user?.role !== "organization" && (
+                    <DialogTrigger asChild>
+                      <Button
+                        // variant="outline"
+                        size="sm"
+                        className="flex items-center gap-2 w-1/2 bg-black"
+                      >
+                        <Plus className="w-4 h-4" />
+                        {t("map.addPin")}
+                      </Button>
+                    </DialogTrigger>
+                  )}
                   <DialogContent className="sm:max-w-md">
                     <DialogHeader>
                       <DialogTitle>{t("map.title")}</DialogTitle>
@@ -602,12 +852,24 @@ export default function HomePage() {
                       )}
 
                       <div className="flex gap-2">
-                        <Button onClick={handleCreatePin} className="flex-1">
-                          {t("map.submit")}
+                        <Button
+                          onClick={handleCreatePin}
+                          className="flex-1"
+                          disabled={isCreatingPin}
+                        >
+                          {isCreatingPin ? (
+                            <div className="flex items-center gap-2">
+                              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                              Creating...
+                            </div>
+                          ) : (
+                            t("map.submit")
+                          )}
                         </Button>
                         <Button
                           variant="outline"
                           onClick={() => setShowPinDialog(false)}
+                          disabled={isCreatingPin}
                         >
                           {t("map.cancel")}
                         </Button>
@@ -761,7 +1023,7 @@ export default function HomePage() {
                               <Shield className="w-4 h-4 text-green-500" />
                             )}
                             <span className="font-medium text-sm">
-                              {pin.title}
+                              {pin.phone}
                             </span>
                           </div>
                           <p className="text-xs text-gray-600 line-clamp-2">
@@ -785,35 +1047,34 @@ export default function HomePage() {
                         </div>
                       </div>
 
-                      {/* Action buttons for volunteers */}
-                      {userRole === "tracking_volunteer" &&
-                        pin.status === "pending" && (
-                          <div className="flex gap-1 mt-2">
-                            <Button
-                              size="sm"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleConfirmPin(pin.id);
-                              }}
-                              className="flex-1"
-                            >
-                              <Check className="w-3 h-3 mr-1" />
-                              Confirm
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDenyPin(pin.id);
-                              }}
-                              className="flex-1"
-                            >
-                              <X className="w-3 h-3 mr-1" />
-                              Deny
-                            </Button>
-                          </div>
-                        )}
+                      {/* Action buttons for trackers - can confirm pending pins */}
+                      {isUserTracker && pin.status === "pending" && (
+                        <div className="flex gap-1 mt-2">
+                          <Button
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleConfirmPin(pin.id);
+                            }}
+                            className="flex-1"
+                          >
+                            <Check className="w-3 h-3 mr-1" />
+                            Confirm
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDenyPin(pin.id);
+                            }}
+                            className="flex-1"
+                          >
+                            <X className="w-3 h-3 mr-1" />
+                            Deny
+                          </Button>
+                        </div>
+                      )}
 
                       {userRole === "supply_volunteer" &&
                         pin.status === "confirmed" &&
@@ -904,25 +1165,35 @@ export default function HomePage() {
 
               {/* Action buttons */}
               <div className="flex gap-2">
-                {userRole === "tracking_volunteer" &&
-                  selectedPin.status === "pending" && (
-                    <>
-                      <Button
-                        onClick={() => handleConfirmPin(selectedPin.id)}
-                        className="flex-1"
-                      >
-                        <Check className="w-4 h-4 mr-2" />
-                        Confirm
-                      </Button>
-                      <Button
-                        variant="outline"
-                        onClick={() => handleDenyPin(selectedPin.id)}
-                        className="flex-1"
-                      >
-                        <X className="w-4 h-4 mr-2" />
-                        Deny
-                      </Button>
-                    </>
+                {isUserTracker && selectedPin.status === "pending" && (
+                  <>
+                    <Button
+                      onClick={() => handleConfirmPin(selectedPin.id)}
+                      className="flex-1"
+                    >
+                      <Check className="w-4 h-4 mr-2" />
+                      Confirm
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => handleDenyPin(selectedPin.id)}
+                      className="flex-1"
+                    >
+                      <X className="w-4 h-4 mr-2" />
+                      Deny
+                    </Button>
+                  </>
+                )}
+
+                {user?.role === "organization" &&
+                  selectedPin.status === "confirmed" && (
+                    <Button
+                      onClick={() => handleDeletePin(selectedPin.id)}
+                      className="w-full bg-red-600 hover:bg-red-700"
+                    >
+                      <Check className="w-4 h-4 mr-2" />
+                      Mark as Completed & Delete
+                    </Button>
                   )}
 
                 {userRole === "supply_volunteer" &&

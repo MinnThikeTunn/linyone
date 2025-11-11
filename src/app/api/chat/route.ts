@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
         - Use proper Burmese grammar and vocabulary
         - Do NOT use romanized Burmese - use actual Burmese characters
         - Provide helpful information about:
-          * Earthquake safety procedures (ငလက်ချောင်းလုံခြုံရေးလမ်းနည်းချက်ချင်းမှု)
+          * Earthquake safety procedures (ငလျင်လုံခြုံရေးလမ်းနည်းချက်ချင်းမှု)
           * Emergency shelters and locations (အရေးပေါ်ခိုလှုံရာများနှင့် တည်နေရားများ)
           * First aid and medical help (ပထမအကူအညီနှင့် ဆေးရည်းအကူအညီ)
           * Emergency contacts and procedures (အရေးပေါ်ဆက်သွယ်ရန်ဖုန်းနံပါတ်များနှင့် လုပ်ငန်းချက်ချင်းမှု)
@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
         Provide specific, actionable advice for earthquake scenarios.
         
         Example Burmese responses:
-        - "ငလက်ချောင်းလုံခြုံရေးလမ်းနည်းချက်ချင်းမှု" (for earthquake safety)
+        - "ငလျင်လုံခြုံရေးလမ်းနည်းချက်ချင်းမှု" (for earthquake safety)
         - "အရေးပေါ်ခိုလှုံရာများနှင့် တည်နေရားများ" (for emergency shelters)
         - "သင့်သတ်ထားအိတ်ဆောင်ပစဉ်းအတွက် ရေးချိန်းလမ်းနိုင်ပါရှိပါသည်။" (for first aid)`
       : `You are an AI assistant for Lin Yone Tech earthquake response platform. 
@@ -79,7 +79,7 @@ export async function POST(request: NextRequest) {
     // Determine response category based on content
     let category = 'general'
     const lowerMessage = message.toLowerCase()
-    if (lowerMessage.includes('earthquake') || lowerMessage.includes('ငလက်ချောင်း') || 
+    if (lowerMessage.includes('earthquake') || lowerMessage.includes('ငလျင်') || 
         lowerMessage.includes('shake') || lowerMessage.includes('tremor')) {
       category = 'safety'
     } else if (lowerMessage.includes('shelter') || lowerMessage.includes('ခိုလှုံရာ') || 

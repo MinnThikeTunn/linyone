@@ -15,6 +15,7 @@ export interface LoginResult {
     name: string
     email: string
     phone?: string
+    is_admin?: boolean
   }
 }
 
@@ -45,6 +46,7 @@ export async function registerUser(input: RegisterInput): Promise<LoginResult> {
       name: data.name,
       email: data.email ?? '',
       phone: data.phone ?? undefined,
+      is_admin: data.is_admin ?? false,
     },
   }
 }
@@ -73,6 +75,7 @@ export async function loginUser(email: string, password: string): Promise<LoginR
       name: data.name,
       email: data.email ?? '',
       phone: data.phone ?? undefined,
+      is_admin: data.is_admin ?? false,
     },
   }
 }

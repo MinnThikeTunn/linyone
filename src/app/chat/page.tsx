@@ -89,7 +89,7 @@ export default function ChatPage() {
       type: 'assistant',
       content: language === 'en' 
         ? 'Hello! I\'m your AI assistant for earthquake safety and emergency response. How can I help you today? I can answer questions about earthquake safety, finding shelters, first aid, emergency contacts, and emergency preparedness.'
-        : 'မင်္ဂလာပါ! ကျွန်ုပ်သည် ငလက်ချောင်းလုံခြုံရေးနှင့် အရေးပေါ်တုန်းဆိုင်းမှု AI လက်ထောက်ဖြစ်ပါသည်။ ကျွန်ုပ်ကို ဘယ်လိုကူညီနိုင်ပါသလဲ?',
+        : 'မင်္ဂလာပါ! ကျွန်ုပ်သည် ငလျင်လုံခြုံရေးနှင့် အရေးပေါ်တုန်းဆိုင်းမှု AI လက်ထောက်ဖြစ်ပါသည်။ ကျွန်ုပ်ကို ဘယ်လိုကူညီနိုင်ပါသလဲ?',
       timestamp: new Date(),
       category: 'general'
     }
@@ -154,7 +154,7 @@ export default function ChatPage() {
       // Determine category based on content
       let category = 'general'
       const lowerMessage = inputMessage.toLowerCase()
-      if (lowerMessage.includes('earthquake') || lowerMessage.includes('ငလက်ချောင်း') || 
+      if (lowerMessage.includes('earthquake') || lowerMessage.includes('ငလျင်') || 
           lowerMessage.includes('shake') || lowerMessage.includes('tremor')) {
         category = 'safety'
       } else if (lowerMessage.includes('shelter') || lowerMessage.includes('ခိုလှုံရာ') || 
@@ -236,7 +236,7 @@ export default function ChatPage() {
   const getPlaceholder = () => {
     return language === 'en' 
       ? 'Ask about earthquake safety, shelters, first aid...' 
-      : 'ငလက်ချောင်းလုံခြုံရေးလမ်းနည်းချက်ချင်းမှု'
+      : 'ငလျင်လုံခြုံရေးလမ်းနည်းချက်ချင်းမှု'
   }
 
   const getEmergencyMessage = () => {
@@ -265,7 +265,7 @@ export default function ChatPage() {
               <p className="text-gray-600">
                 {language === 'en' 
                   ? 'Get instant help with earthquake safety, shelters, and emergency information'
-                  : 'ငလက်ချောင်းလုံခြုံရေးလမ်းနည်းချက်ချင်းမှု'
+                  : 'ငလျင်လုံခြုံရေးလမ်းနည်းချက်ချင်းမှု'
                 }
               </p>
             </div>

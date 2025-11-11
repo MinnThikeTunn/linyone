@@ -163,7 +163,6 @@ export default function DashboardPage() {
   });
   const [emergencyKitStatus, setEmergencyKitStatus] = useState(75);
 
-  //family member
   const handleAddFamilyMember = () => {
     if (!newMember.name || !newMember.phone) return;
 
@@ -181,7 +180,6 @@ export default function DashboardPage() {
     setShowAddMember(false);
   };
 
-  //check safety check
   const handleSendSafetyCheck = (memberId: string) => {
     // In a real app, this would send a notification
     alert(
@@ -190,7 +188,6 @@ export default function DashboardPage() {
     );
   };
 
-  //mark safety
   const handleMarkSafe = (memberId: string) => {
     setFamilyMembers(
       familyMembers.map((member) =>
@@ -253,7 +250,7 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 p-4">
-      <div className="max-w-7xl mx-auto">
+      <div className="max-w-[90rem] mx-auto">
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">
@@ -411,7 +408,6 @@ export default function DashboardPage() {
                         <div className="text-sm text-gray-600">
                           Unique ID will be generated automatically
                         </div>
-
                         <Button
                           onClick={handleAddFamilyMember}
                           className="w-full"
@@ -443,17 +439,16 @@ export default function DashboardPage() {
                           <p className="text-xs text-gray-500">
                             ID: {member.uniqueId}
                           </p>
-
                           {member.location && (
                             <p className="text-xs text-gray-500 flex items-center gap-1 mt-1">
                               <MapPin className="w-3 h-3" />
-                              {member.location.address}
+                              {member.location?.address}
                             </p>
                           )}
                         </div>
                       </div>
 
-                      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
+                      <div className="flex items-center gap-2">
                         <Badge className={getStatusColor(member.status)}>
                           {member.status === "safe" ? (
                             <CheckCircle className="w-3 h-3 mr-1" />
@@ -465,7 +460,7 @@ export default function DashboardPage() {
                           {t(`family.${member.status}`)}
                         </Badge>
 
-                        <div className="flex flex-wrap gap-1">
+                        <div className="flex gap-1">
                           <Button
                             size="sm"
                             variant="outline"
@@ -484,6 +479,50 @@ export default function DashboardPage() {
                               {t("family.markDone")}
                             </Button>
                           )}
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={async () => {
+                              if (!user?.id) return;
+                              try {
+                                const res = await removeFamilyMemberById(
+                                  user.id,
+                                  member.id
+                                );
+                                if (res?.success) {
+                                  const links = await fetchFamilyMembers(
+                                    user.id
+                                  );
+                                  const mapped = (links || []).map(
+                                    (l: any) => ({
+                                      id: l.member?.id ?? l.id,
+                                      name: l.member?.name ?? "Unknown",
+                                      phone: l.member?.phone ?? "",
+                                      uniqueId: l.member?.id ?? l.id,
+                                      status: "unknown",
+                                    })
+                                  );
+                                  const seen3 = new Set<string>();
+                                  const deduped3 = mapped.filter((m) => {
+                                    const key = m.id;
+                                    if (!key) return false;
+                                    if (seen3.has(key)) return false;
+                                    seen3.add(key);
+                                    return true;
+                                  });
+                                  setFamilyMembers(deduped3);
+                                } else {
+                                  console.warn("unlink failed", res?.error);
+                                  alert("Failed to unlink member");
+                                }
+                              } catch (err) {
+                                console.error(err);
+                                alert("Failed to unlink member");
+                              }
+                            }}
+                          >
+                            Unlink
+                          </Button>
                         </div>
                       </div>
                     </div>

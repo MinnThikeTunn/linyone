@@ -9,9 +9,21 @@ interface User {
   email: string
   phone?: string
 }
+// Optional fields used by UI
+interface UserWithMeta extends User {
+  accountType?: 'user' | 'organization'
+  role?: string
+  image?: string
+  // derived flags for convenience
+  isOrg?: boolean
+  isAdmin?: boolean
+}
+
+
+const LOCAL_USER_KEY = 'linyone_user'
 
 interface AuthContextType {
-  user: User | null
+  user: UserWithMeta | null
   isAuthenticated: boolean
   isLoading: boolean
   login: (email: string, password: string, accountType: AccountType) => Promise<{ success: boolean; error?: string }>
@@ -33,12 +45,25 @@ interface RegisterData {
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null)
+  const [user, setUser] = useState<UserWithMeta | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
-    // No Supabase Auth session; simply mark as not loading
-    setIsLoading(false)
+    // Try to restore persisted user from localStorage on mount
+    try {
+      const raw = localStorage.getItem(LOCAL_USER_KEY)
+      if (raw) {
+          const parsed = JSON.parse(raw) as UserWithMeta
+          // ensure derived flags exist when restoring
+          parsed.isOrg = parsed.isOrg ?? (parsed.accountType === 'organization')
+          parsed.isAdmin = parsed.isAdmin ?? (parsed.role === 'admin')
+          setUser(parsed)
+      }
+    } catch (err) {
+      console.error('Failed to restore auth from localStorage', err)
+    } finally {
+      setIsLoading(false)
+    }
   }, [])
 
   const login = async (email: string, password: string, accountType: AccountType): Promise<{ success: boolean; error?: string }> => {
@@ -52,12 +77,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { success: false, error: result.error || 'Invalid credentials' }
       }
 
-      setUser({
+      const newUser: UserWithMeta = {
         id: result.user.id,
         email: result.user.email,
         name: result.user.name,
         phone: result.user.phone,
-      })
+        // mark the origin and a simple role so pages that check `role` continue to work
+        accountType: accountType,
+        // if backend provided is_admin, prefer that for admin role
+        role: (result.user as any).is_admin ? 'admin' : (accountType === 'organization' ? 'organization' : 'user'),
+        isOrg: accountType === 'organization',
+        isAdmin: !!(result.user as any).is_admin,
+      }
+      setUser(newUser)
+      try { localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(newUser)) } catch {}
 
       return { success: true }
     } catch (error) {
@@ -92,12 +125,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { success: false, error: result.error || 'Registration failed' }
       }
 
-      setUser({
+      const newUser: UserWithMeta = {
         id: result.user.id,
         email: result.user.email,
         name: result.user.name,
         phone: result.user.phone,
-      })
+        accountType: userData.accountType,
+        role: userData.accountType === 'organization' ? 'organization' : 'user',
+        isOrg: userData.accountType === 'organization',
+        isAdmin: false,
+      }
+      setUser(newUser)
+      try { localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(newUser)) } catch {}
 
       return { success: true }
     } catch (error) {
@@ -112,6 +151,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(true)
     try {
       setUser(null)
+      try { localStorage.removeItem(LOCAL_USER_KEY) } catch {}
     } catch (error) {
       console.error('Logout error:', error)
     } finally {
