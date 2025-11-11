@@ -41,6 +41,8 @@ import {
 } from "lucide-react";
 import { useLanguage } from "@/hooks/use-language";
 import { useAuth } from "@/hooks/use-auth";
+import { mockSafetyModules } from "@/data/mockSafetyModules";
+import Link from "next/link";
 
 interface FamilyMember {
   id: string;
@@ -91,60 +93,6 @@ const mockFamilyMembers: FamilyMember[] = [
     lastSeen: new Date(Date.now() - 15 * 60 * 1000),
     status: "safe",
     location: { lat: 16.8509, lng: 96.1835, address: "Mandalay, Myanmar" },
-  },
-];
-
-const mockSafetyModules: SafetyModule[] = [
-  {
-    id: "1",
-    title: "CPR Training",
-    description: "Learn life-saving cardiopulmonary resuscitation techniques",
-    category: "First Aid",
-    duration: "15 min",
-    progress: 100,
-    isLocked: false,
-    badge: "CPR Certified",
-    icon: <Heart className="w-6 h-6 text-red-500" />,
-  },
-  {
-    id: "2",
-    title: "First Aid Basics",
-    description: "Essential first aid skills for emergency situations",
-    category: "First Aid",
-    duration: "20 min",
-    progress: 60,
-    isLocked: false,
-    icon: <Shield className="w-6 h-6 text-blue-500" />,
-  },
-  {
-    id: "3",
-    title: "Earthquake Safety",
-    description: "What to do before, during, and after an earthquake",
-    category: "Emergency",
-    duration: "10 min",
-    progress: 30,
-    isLocked: false,
-    icon: <AlertTriangle className="w-6 h-6 text-orange-500" />,
-  },
-  {
-    id: "4",
-    title: "Emergency Preparedness",
-    description: "How to prepare your family and home for disasters",
-    category: "Preparedness",
-    duration: "25 min",
-    progress: 0,
-    isLocked: false,
-    icon: <Settings className="w-6 h-6 text-green-500" />,
-  },
-  {
-    id: "5",
-    title: "Advanced Rescue Techniques",
-    description: "Professional rescue methods for volunteers",
-    category: "Advanced",
-    duration: "45 min",
-    progress: 0,
-    isLocked: true,
-    icon: <Lock className="w-6 h-6 text-gray-500" />,
   },
 ];
 
@@ -606,8 +554,10 @@ export default function DashboardPage() {
                                   {t("safety.completed")}
                                 </Button>
                               ) : (
-                                <Button
-                                  size="sm"
+                                <Link
+                                  key={module.id}
+                                  href={`/safetycourse/${module.id}`}
+                                  // size="sm"
                                   onClick={() => handleStartModule(module.id)}
                                   className="w-full"
                                 >
@@ -615,18 +565,21 @@ export default function DashboardPage() {
                                   {module.progress > 0
                                     ? t("safety.continue")
                                     : t("safety.start")}
-                                </Button>
+                                </Link>
                               )} */}
-                              <Button
-                                size="sm"
-                                onClick={() => handleStartModule(module.id)}
-                                className="w-full"
+                              <Link
+                                key={module.id}
+                                href={`/safetycourse/${module.id}`}
+                                // size="sm"
+                                // onClick={() => handleStartModule(module.id)}
+                                className="flex items-center justify-center w-full bg-black rounded-lg text-white py-2"
                               >
                                 <Play className="w-3 h-3 mr-1" />
-                                {module.progress > 0
+                                {/* {module.progress > 0
                                   ? t("safety.continue")
-                                  : t("safety.start")}
-                              </Button>
+                                  : t("safety.start")} */}
+                                {t("safety.start")}
+                              </Link>
                             </div>
                           </div>
                         </div>
