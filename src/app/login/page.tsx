@@ -78,9 +78,6 @@ export default function LoginPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-center">{t('auth.login')}</CardTitle>
-            <CardDescription className="text-center">
-              Enter your credentials to access the platform
-            </CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleLogin} className="space-y-4">
@@ -91,7 +88,6 @@ export default function LoginPage() {
               )}
               
               <div className="flex flex-col gap-2">
-                <Label>{t('auth.accountType') ?? 'Account Type'}</Label>
                 <ToggleGroup
                   type="single"
                   value={loginForm.accountType}
