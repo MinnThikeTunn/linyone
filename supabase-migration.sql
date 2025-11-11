@@ -1,156 +1,103 @@
--- Enable UUID extension first
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+-- WARNING: This schema is for context only and is not meant to be run.
+-- Table order and constraints may not be valid for execution.
 
--- USERS
-create table users (
-  id uuid primary key default uuid_generate_v4(),
-  name text not null,
+CREATE TABLE public.donations (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  organization_id uuid,
+  pin_item_id uuid,
+  donated_quantity integer NOT NULL CHECK (donated_quantity > 0),
+  donated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT donations_pkey PRIMARY KEY (id),
+  CONSTRAINT donations_pin_item_id_fkey FOREIGN KEY (pin_item_id) REFERENCES public.pin_items(id),
+  CONSTRAINT donations_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES public.organizations(id)
+);
+CREATE TABLE public.family_members (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  user_id uuid NOT NULL,
+  member_id uuid NOT NULL,
+  relation character varying,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT family_members_pkey PRIMARY KEY (id),
+  CONSTRAINT family_members_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id),
+  CONSTRAINT family_members_member_id_fkey FOREIGN KEY (member_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.items (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  name text NOT NULL UNIQUE,
+  unit text,
+  category text,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT items_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.messages (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  sender_id uuid NOT NULL,
+  receiver_id uuid NOT NULL,
+  content text NOT NULL,
+  status text DEFAULT 'sent'::text CHECK (status = ANY (ARRAY['sent'::text, 'delivered'::text, 'read'::text])),
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT messages_pkey PRIMARY KEY (id),
+  CONSTRAINT messages_sender_id_fkey FOREIGN KEY (sender_id) REFERENCES public.users(id),
+  CONSTRAINT messages_receiver_id_fkey FOREIGN KEY (receiver_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.org-member (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  organization_id uuid,
+  user_id uuid,
+  status text DEFAULT 'active'::text CHECK (status = ANY (ARRAY['active'::text, 'inactive'::text])),
+  created_at timestamp with time zone DEFAULT now(),
+  type text DEFAULT 'normal'::text,
+  CONSTRAINT org-member_pkey PRIMARY KEY (id),
+  CONSTRAINT trackers_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES public.organizations(id),
+  CONSTRAINT trackers_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.organizations (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  name text NOT NULL,
+  email text NOT NULL,
+  phone text NOT NULL,
+  address text,
+  is_verified boolean DEFAULT false,
+  created_at timestamp with time zone DEFAULT now(),
+  password text,
+  role text DEFAULT 'Organization'::text,
+  CONSTRAINT organizations_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.pin_items (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  pin_id uuid,
+  item_id uuid,
+  requested_qty integer NOT NULL CHECK (requested_qty > 0),
+  remaining_qty integer NOT NULL,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT pin_items_pkey PRIMARY KEY (id),
+  CONSTRAINT pin_items_pin_id_fkey FOREIGN KEY (pin_id) REFERENCES public.pins(id),
+  CONSTRAINT pin_items_item_id_fkey FOREIGN KEY (item_id) REFERENCES public.items(id)
+);
+CREATE TABLE public.pins (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  user_id uuid,
+  latitude numeric NOT NULL,
+  longitude numeric NOT NULL,
+  type text CHECK (type = ANY (ARRAY['damage'::text, 'shelter'::text])),
+  image_url text,
+  description text,
+  status text DEFAULT 'pending'::text CHECK (status = ANY (ARRAY['pending'::text, 'confirmed'::text, 'completed'::text])),
+  confirmed_by uuid,
+  confirmed_at timestamp with time zone,
+  created_at timestamp with time zone DEFAULT now(),
+  phone no. numeric,
+  CONSTRAINT pins_pkey PRIMARY KEY (id),
+  CONSTRAINT pins_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id),
+  CONSTRAINT pins_confirmed_by_fkey FOREIGN KEY (confirmed_by) REFERENCES public.org-member(id)
+);
+CREATE TABLE public.users (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  name text NOT NULL,
   email text,
   phone text,
   password text,
-  created_at timestamptz default now()
+  created_at timestamp with time zone DEFAULT now(),
+  is_admin boolean DEFAULT false,
+  CONSTRAINT users_pkey PRIMARY KEY (id)
 );
-
--- ORGANIZATIONS
-create table organizations (
-  id uuid primary key default uuid_generate_v4(),
-  name text not null,
-  email text not null,
-  phone text not null,
-  password text not null,
-  address text,
-  is_verified boolean default false,
-  created_at timestamptz default now()
-);
-
--- TRACKERS
-create table trackers (
-  id uuid primary key default uuid_generate_v4(),
-  organization_id uuid references organizations(id) on delete cascade,
-  user_id uuid references users(id) on delete cascade,
-  status text check (status in ('active', 'inactive')) default 'active',
-  created_at timestamptz default now()
-);
-
--- DAMAGE PINS
-create table pins (
-  id uuid primary key default uuid_generate_v4(),
-  user_id uuid references users(id),
-  latitude decimal not null,
-  longitude decimal not null,
-  type text check (type in ('damage','shelter')),
-  image_url text,
-  description text,
-  status text check (status in ('pending','confirmed','completed')) default 'pending',
-  confirmed_by uuid references trackers(id),
-  confirmed_at timestamptz,
-  created_at timestamptz default now()
-);
-
--- 
--- ==========================================================
--- NEW ITEMS TABLE (Static Data)
--- ==========================================================
---
-create table items (
-  id uuid primary key default uuid_generate_v4(),
-  name text not null unique,
-  unit text, -- e.g., 'packs', 'liters', 'units'
-  category text,
-  created_at timestamptz default now()
-);
-
--- Insert 5 static data rows
-INSERT INTO items (name, unit, category) VALUES
-('Food Pack', 'packs', 'Food'),
-('Bottled Water', 'liters', 'Water'),
-('Blanket', 'units', 'Shelter'),
-('First Aid Kit', 'kits', 'Medical'),
-('Tarp', 'units', 'Shelter');
-
--- 
--- ==========================================================
--- MODIFIED PIN_ITEMS TABLE
--- ==========================================================
---
-create table pin_items (
-  id uuid primary key default uuid_generate_v4(),
-  pin_id uuid references pins(id) on delete cascade,
-  item_id uuid references items(id), -- <-- Changed from item_name
-  requested_qty int not null check (requested_qty > 0),
-  remaining_qty int not null,
-  created_at timestamptz default now(),
-  
-  -- Ensures remaining qty is always valid
-  CHECK (remaining_qty >= 0 AND remaining_qty <= requested_qty)
-);
-
--- 
--- ==========================================================
--- DONATION SYSTEM TABLE (No changes needed)
--- ==========================================================
---
-create table donations (
-  id uuid primary key default uuid_generate_v4(),
-  organization_id uuid references organizations(id) on delete set null,
-  pin_item_id uuid references pin_items(id) on delete cascade,
-  donated_quantity int not null check (donated_quantity > 0),
-  donated_at timestamptz default now()
-);
-
--- 
--- ==========================================================
--- ROW LEVEL SECURITY (No changes needed)
--- ==========================================================
---
-alter table pins enable row level security;
-
-create policy "anyone_can_create_pin"
-on pins
-for insert
-to public
-with check (true);
-
-create policy "tracker_confirm"
-on pins
-for update 
-using (auth.uid() in (select user_id from trackers where status='active'));
-
---
--- ==========================================================
--- AUTOMATION TRIGGER (No changes needed)
--- ==========================================================
---
-create or replace function handle_donation_and_pin_completion()
-returns trigger as $$
-DECLARE
-    v_pin_id UUID;
-    v_total_remaining INT;
-BEGIN
-    -- 1. Update the remaining_qty on the specific pin_item
-    UPDATE pin_items
-    SET remaining_qty = remaining_qty - NEW.donated_quantity
-    WHERE id = NEW.pin_item_id
-    RETURNING pin_id INTO v_pin_id;
-
-    -- 2. Check if all items on that pin are now complete
-    SELECT SUM(remaining_qty)
-    INTO v_total_remaining
-    FROM pin_items
-    WHERE pin_id = v_pin_id;
-
-    -- 3. If total remaining is 0, complete the pin
-    IF v_total_remaining = 0 THEN
-        UPDATE pins
-        SET status = 'completed'
-        WHERE id = v_pin_id;
-    END IF;
-
-    RETURN NEW;
-END;
-$$ language plpgsql;
-
-create trigger t_handle_donation
-after insert on donations
-for each row
-execute procedure handle_donation_and_pin_completion();
