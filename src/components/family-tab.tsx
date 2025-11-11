@@ -3,13 +3,16 @@
 import { useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { Users, Heart, Plus, MessageCircle, CheckCircle, MapPin, XCircle, Search } from 'lucide-react'
+import { Users, Heart, Plus, MessageCircle, MapPin, XCircle, Search, CheckCircle, AlertTriangle, HelpCircle, Clock } from 'lucide-react'
 import { TabsContent } from '@/components/ui/tabs'
-import { fetchFamilyMembers, sendMessage, sendFamilyRequest, findUsers, removeFamilyMemberById } from '@/services/family'
+import { fetchFamilyMembers, sendMessage, sendFamilyRequest, findUsers, removeFamilyMemberById, sendSafetyCheck } from '@/services/family'
+import { subscribeToNotifications, NotificationRecord, getNotifications } from '@/services/notifications'
+import { useEffect } from 'react'
 
 interface Props {
   t: any
@@ -54,10 +57,18 @@ export default function FamilyTab(props: Props) {
     setMemberRelation
   } = props
 
+
   const handleSendSafetyCheck = async (memberId: string) => {
     if (!user?.id) return
     try {
-      await sendMessage(user.id, memberId, 'Are you okay?')
+      // Send safety check notification
+      const res = await sendSafetyCheck(user.id, memberId)
+      if (!res?.success) throw new Error('send safety check failed')
+      const secs = typeof (res as any).durationSeconds === 'number' ? (res as any).durationSeconds : 300
+      const nowIso = new Date().toISOString()
+      const optimisticExpiry = new Date(Date.now() + secs * 1000).toISOString()
+      // Optimistic local state: unknown + client-side expiry + record local started time (active_check_started_at)
+      setFamilyMembers(prev => prev.map(m => m.id === memberId ? { ...m, status: 'unknown', safety_status: 'unknown', safety_check_started_at: nowIso, safety_check_expires_at: optimisticExpiry, active_check_started_at: nowIso } : m))
       alert('Safety check sent')
     } catch (err) {
       console.error(err)
@@ -65,16 +76,37 @@ export default function FamilyTab(props: Props) {
     }
   }
 
-  const handleMarkSafe = (memberId: string) => {
-    setFamilyMembers(familyMembers.map(member => 
-      member.id === memberId 
-        ? { ...member, status: 'safe', lastSeen: new Date() }
-        : member
-    ))
-  }
+  // Removed mark-as-done functionality per request
 
   return (
     <>
+      {/* Subscribe to safety-check responses */}
+      {user?.id && (
+        <NotificationsBridge userId={user.id} onResponse={(n: NotificationRecord) => {
+          // Only process safety response notifications
+          if (n.type !== 'safety_check_ok' && n.type !== 'safety_check_not_ok') return
+          const payload: any = n.payload || {}
+          const responderId = payload.responder_id
+          if (!responderId) return
+          setFamilyMembers(prev => prev.map(m => {
+            if (m.id !== responderId) return m
+            // Guard: ensure notification is for current active window
+            const started = m.active_check_started_at || m.safety_check_started_at
+            if (started) {
+              try {
+                const notifTs = new Date(n.created_at).getTime()
+                const startedTs = new Date(started).getTime()
+                if (notifTs < startedTs) {
+                  // Old response from previous window; ignore
+                  return m
+                }
+              } catch { /* ignore parse errors */ }
+            }
+            const mappedStatus = n.type === 'safety_check_not_ok' ? 'danger' : 'safe'
+            return { ...m, status: mappedStatus, safety_status: mappedStatus }
+          }))
+        }} />
+      )}
       <TabsContent value="family" className="space-y-6">
         <Card>
           <CardHeader>
@@ -86,19 +118,22 @@ export default function FamilyTab(props: Props) {
                 </CardTitle>
                 <CardDescription>Track your family members' safety status</CardDescription>
               </div>
-              <Dialog open={showAddMember} onOpenChange={setShowAddMember}>
-                <DialogTrigger asChild>
-                  <Button className="flex items-center gap-2">
-                    <Plus className="w-4 h-4" />
-                    {t('family.addMember')}
-                  </Button>
-                </DialogTrigger>
-                <DialogContent showCloseButton={false} className="max-w-lg md:max-w-2xl w-full px-4 sm:px-0">
+              <div className="flex items-center gap-2">
+                <Dialog open={showAddMember} onOpenChange={setShowAddMember}>
+                  <DialogTrigger asChild>
+                    <Button className="flex items-center gap-2">
+                      <Plus className="w-4 h-4" />
+                      {t('family.addMember')}
+                    </Button>
+                  </DialogTrigger>
+                <DialogContent showCloseButton={false} className="max-w-lg md:max-w-2xl w-full p-[30px]">
                   <div className="rounded-lg overflow-hidden shadow-lg bg-white">
-                    <div className="relative bg-gradient-to-r from-indigo-600 to-sky-500 p-4 text-white">
+                    <div className="relative bg-linear-to-r from-indigo-600 to-sky-500 p-4 text-white">
                       <div className="flex items-center gap-3">
                         <Avatar className="w-12 h-12">
-                          <AvatarFallback>F</AvatarFallback>
+                          <AvatarFallback className="bg-amber-500">
+                            <Users className="w-6 h-6 text-white" />
+                          </AvatarFallback>
                         </Avatar>
                         <DialogHeader className="p-0">
                           <DialogTitle className="text-lg font-semibold">{t('family.addMember')}</DialogTitle>
@@ -181,7 +216,7 @@ export default function FamilyTab(props: Props) {
                       )}
 
                       {selectedFound && (
-                        <div className="p-3 bg-gradient-to-r from-white to-indigo-50 rounded-lg border">
+                        <div className="p-3 bg-linear-to-r from-white to-indigo-50 rounded-lg border">
                           <div className="flex flex-col md:flex-row items-start md:items-center justify-between w-full">
                             <div className="flex items-center gap-3 w-full">
                               <Avatar className="w-12 h-12">
@@ -248,7 +283,8 @@ export default function FamilyTab(props: Props) {
                     </div>
                   </div>
                 </DialogContent>
-              </Dialog>
+                </Dialog>
+              </div>
             </div>
           </CardHeader>
           <CardContent>
@@ -263,6 +299,7 @@ export default function FamilyTab(props: Props) {
                       <h3 className="font-medium">{member.name}</h3>
                       <p className="text-sm text-gray-600">{member.phone}</p>
                       <p className="text-xs text-gray-500">ID: {member.uniqueId}</p>
+                      {/* Removed inline textual status per requirement */}
                       {member.location?.address && (
                         <p className="text-xs text-gray-500 flex items-center gap-1 mt-1">
                           <MapPin className="w-3 h-3" />
@@ -273,16 +310,8 @@ export default function FamilyTab(props: Props) {
                   </div>
 
                   <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full md:w-auto">
-                    <Button size="sm" variant="outline" className="w-full sm:w-auto" onClick={() => handleSendSafetyCheck(member.id)}>
-                      <MessageCircle className="w-3 h-3 mr-1" />
-                      {t('family.areYouOk')}
-                    </Button>
-                    {member.status !== 'safe' && (
-                      <Button size="sm" className="w-full sm:w-auto" onClick={() => handleMarkSafe(member.id)}>
-                        <CheckCircle className="w-3 h-3 mr-1" />
-                        {t('family.markDone')}
-                      </Button>
-                    )}
+                    {renderSafetyControl(member, t, handleSendSafetyCheck)}
+                    {/* Mark Done button removed */}
                     <Button size="sm" variant="destructive" className="w-full sm:w-auto" onClick={async () => {
                       if (!user?.id) return
                       try {
@@ -326,4 +355,126 @@ export default function FamilyTab(props: Props) {
     </>
   )
 }
+
+// Bridge component to subscribe and update status
+// Keep NotificationsBridge external contract using original 'safe' | 'not_safe'
+// Map internally to 'danger' before updating state/UI badges.
+function NotificationsBridge({ userId, onResponse }: { userId: string, onResponse: (n: NotificationRecord) => void }) {
+  useEffect(() => {
+    const processed = new Set<string>()
+    const handle = (n: NotificationRecord) => {
+      if (processed.has(n.id)) return
+      if (n.type === 'safety_check_ok' || n.type === 'safety_check_not_ok') {
+        onResponse(n)
+      }
+      processed.add(n.id)
+    }
+
+    // Realtime subscription
+    const channel = subscribeToNotifications(userId, (n: NotificationRecord) => {
+      handle(n)
+    }, { channelId: `notifications-bridge-${userId}` })
+
+    // Polling fallback: fetch and process periodically
+    const poll = async () => {
+      try {
+        const list = await getNotifications(userId)
+        for (const n of list) handle(n)
+      } catch (e) {
+        // ignore
+      }
+    }
+    // initial fetch
+    poll()
+    const interval = setInterval(poll, 10000)
+
+    return () => {
+      try { (channel as any)?.unsubscribe?.() } catch {}
+      clearInterval(interval)
+    }
+  }, [userId, onResponse])
+  return null
+}
+
+// Colored status badge that replaces the button during an active check window
+function StatusBadge({ status }: { status: 'safe' | 'unknown' | 'danger' | string }) {
+  const map: Record<string, { icon: any, classes: string, label: string }> = {
+    safe: { icon: CheckCircle, classes: 'bg-green-100 text-green-700 border border-green-200', label: 'Safe' },
+    danger: { icon: AlertTriangle, classes: 'bg-red-100 text-red-700 border border-red-200', label: 'Danger' },
+    unknown: { icon: HelpCircle, classes: 'bg-gray-100 text-gray-700 border border-gray-200', label: 'Unknown' },
+  }
+  const def = map[status] || map['unknown']
+  const Icon = def.icon
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium ${def.classes}`}>
+      <Icon className="w-3 h-3" />
+      {def.label}
+    </span>
+  )
+}
+
+// Decide if server-persisted window still active
+function serverWindowActive(member: any): boolean {
+  if (!member.safety_check_expires_at) return false
+  try {
+    const expiry = new Date(member.safety_check_expires_at).getTime()
+    return Date.now() < expiry
+  } catch { return false }
+}
+
+// Countdown with timer icon showing mm:ss remaining until expiry
+function Countdown({ expiresAt }: { expiresAt?: string | null }) {
+  const [now, setNow] = useState<number>(() => Date.now())
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [])
+
+  let remaining = 0
+  if (expiresAt) {
+    try {
+      remaining = Math.max(0, new Date(expiresAt).getTime() - now)
+    } catch {}
+  }
+
+  const totalSec = Math.floor(remaining / 1000)
+  const mm = String(Math.floor(totalSec / 60)).padStart(2, '0')
+  const ss = String(totalSec % 60).padStart(2, '0')
+
+  return (
+    <span className="inline-flex items-center gap-1 text-xs text-gray-500">
+      <Clock className="w-3 h-3" />
+      {mm}:{ss}
+    </span>
+  )
+}
+
+function renderSafetyControl(member: any, t: any, sendFn: (id: string)=>Promise<any>) {
+  const active = serverWindowActive(member)
+  if (active && member.status) {
+    return (
+      <div className="flex items-center gap-2">
+        <StatusBadge status={member.status} />
+        <Countdown expiresAt={member.safety_check_expires_at} />
+      </div>
+    )
+  }
+  return (
+    <div className="flex items-center gap-2">
+      <Button
+        size="sm"
+        variant="outline"
+        className="w-full sm:w-auto"
+        onClick={() => sendFn(member.id)}
+        disabled={active}
+      >
+        <MessageCircle className="w-3 h-3 mr-1" />
+        {t('family.areYouOk')}
+      </Button>
+      <Countdown expiresAt={active ? member.safety_check_expires_at : undefined} />
+    </div>
+  )
+}
+
 

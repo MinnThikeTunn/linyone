@@ -86,7 +86,7 @@ const translations = {
     "family.uniqueId": "Unique ID",
     "family.imSafe": "I'm Safe",
     "family.areYouOk": "Are You OK?",
-    "family.markDone": "Mark Done",
+  // "family.markDone": "Mark Done", // removed feature
     "family.lastSeen": "Last Seen",
     "family.status": "Status",
 
@@ -226,7 +226,7 @@ const translations = {
     "family.uniqueId": "တစ်ဦးတည်းအိုင်ဒီ",
     "family.imSafe": "ကျွန်ုပ်ဘေးကင်းပါသည်",
     "family.areYouOk": "နေကောင်းလား?",
-    "family.markDone": "ပြီးမြောက်ပါသည်ဟုမှတ်ယူရန်",
+  // "family.markDone": "ပြီးမြောက်ပါသည်ဟုမှတ်ယူရန်", // removed feature
     "family.lastSeen": "နောက်ဆုံးမြင်ရသော",
     "family.status": "အခြေအနေ",
 

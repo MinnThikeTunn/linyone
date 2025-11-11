@@ -29,6 +29,7 @@ import { useLanguage } from '@/hooks/use-language'
 import { useAuth } from '@/hooks/use-auth'
 import FamilyTab from '@/components/family-tab'
 import { fetchFamilyMembers } from '@/services/family'
+import { supabase } from '@/lib/supabase'
 
 import { mockSafetyModules } from "@/data/mockSafetyModules";
 import Link from "next/link";
@@ -146,9 +147,89 @@ export default function DashboardPage() {
   const completedModules = safetyModules.filter(
     (m) => m.progress === 100
   ).length;
-  const safeFamilyMembers = familyMembers.filter(
-    (m) => m.status === "safe"
-  ).length;
+
+  // Load family members for current user and subscribe to changes
+  useEffect(() => {
+    let channel: any
+    const load = async () => {
+      if (!user?.id) return
+      try {
+        const links = await fetchFamilyMembers(user.id)
+        const mapped = (links || []).map((l: any) => ({
+          id: l.member?.id ?? l.id,
+          name: l.member?.name ?? 'Unknown',
+          phone: l.member?.phone ?? '',
+          uniqueId: l.member?.id ?? l.id,
+          status: l.safety_status ?? null,
+          safety_check_started_at: l.safety_check_started_at,
+          safety_check_expires_at: l.safety_check_expires_at,
+          lastSeen: new Date()
+        }))
+        const seen = new Set<string>()
+        const deduped = mapped.filter((m: any) => {
+          const key = m.id
+          if (!key) return false
+          if (seen.has(key)) return false
+          seen.add(key)
+          return true
+        })
+        setFamilyMembers(deduped)
+      } catch (e) {
+        console.warn('failed to load family members', e)
+      }
+      try {
+        channel = supabase
+          .channel(`family_members:${user.id}`)
+          .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'family_members', filter: `user_id=eq.${user.id}` }, async () => {
+            const links = await fetchFamilyMembers(user.id)
+            const mapped = (links || []).map((l: any) => ({
+              id: l.member?.id ?? l.id,
+              name: l.member?.name ?? 'Unknown',
+              phone: l.member?.phone ?? '',
+              uniqueId: l.member?.id ?? l.id,
+              status: l.safety_status ?? null,
+              safety_check_started_at: l.safety_check_started_at,
+              safety_check_expires_at: l.safety_check_expires_at,
+              lastSeen: new Date()
+            }))
+            const seen2 = new Set<string>()
+            const deduped2 = mapped.filter((m: any) => {
+              const key = m.id
+              if (!key) return false
+              if (seen2.has(key)) return false
+              seen2.add(key)
+              return true
+            })
+            setFamilyMembers(deduped2)
+          })
+          // Intentionally skip UPDATE subscription for safety status so UI changes only when the
+          // corresponding notification arrives (keeps status + notification in sync timing)
+          .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'family_members', filter: `user_id=eq.${user.id}` }, async () => {
+            const links = await fetchFamilyMembers(user.id)
+            const mapped = (links || []).map((l: any) => ({
+              id: l.member?.id ?? l.id,
+              name: l.member?.name ?? 'Unknown',
+              phone: l.member?.phone ?? '',
+              uniqueId: l.member?.id ?? l.id,
+              status: l.safety_status ?? null,
+              safety_check_started_at: l.safety_check_started_at,
+              safety_check_expires_at: l.safety_check_expires_at,
+              lastSeen: new Date()
+            }))
+            setFamilyMembers(mapped)
+          })
+          .subscribe()
+      } catch (e) {
+        console.warn('failed to subscribe family_members', e)
+      }
+    }
+    load()
+    return () => {
+      try { (channel as any)?.unsubscribe?.() } catch {}
+    }
+  }, [user?.id])
+
+  const safeFamilyMembers = familyMembers.filter((m) => m.status === "safe").length;
 
   // if (!isAuthenticated) {
   //   return (
@@ -165,7 +246,7 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="max-w-[90rem] mx-auto px-4 sm:px-6 lg:px-8">
+  <div className="max-w-360 mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">

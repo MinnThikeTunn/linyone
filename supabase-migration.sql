@@ -1,7 +1,6 @@
 -- WARNING: This schema is for context only and is not meant to be run.
 -- Table order and constraints may not be valid for execution.
 
-
 CREATE TABLE donations (
   id uuid NOT NULL DEFAULT uuid_generate_v4(),
   organization_id uuid,
@@ -29,11 +28,24 @@ CREATE TABLE family_members (
   user_id uuid NOT NULL,
   member_id uuid NOT NULL,
   relation character varying,
+  -- Persistent safety window fields
+  safety_status text CHECK (safety_status IN ('safe','danger','unknown')),
+  safety_check_started_at timestamptz,
+  safety_check_expires_at timestamptz,
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT family_members_pkey PRIMARY KEY (id),
   CONSTRAINT family_members_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id),
   CONSTRAINT family_members_member_id_fkey FOREIGN KEY (member_id) REFERENCES users(id)
 );
+
+
+
+-- Helpful index for checking active/expired windows
+CREATE INDEX IF NOT EXISTS family_members_safety_expires_idx
+  ON family_members (safety_check_expires_at)
+  WHERE safety_check_expires_at IS NOT NULL;
+
+
 CREATE TABLE items (
   id uuid NOT NULL DEFAULT uuid_generate_v4(),
   name text NOT NULL UNIQUE,
