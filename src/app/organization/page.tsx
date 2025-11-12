@@ -77,7 +77,9 @@ interface HelpRequest {
   location: string
   lat: number
   lng: number
+  region?: string
   image?: string
+  urgency: 'low' | 'medium' | 'high'
   status: 'pending' | 'partially_accepted' | 'completed'
   requestedBy: string
   requestedAt: Date
@@ -154,7 +156,9 @@ const mockHelpRequests: HelpRequest[] = [
     location: 'Yangon Downtown, Main Street',
     lat: 16.8409,
     lng: 96.1735,
+    region: 'Yangon',
     image: '/api/placeholder/400/300',
+    urgency: 'high',
     status: 'pending',
     requestedBy: 'Hospital A',
     requestedAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
@@ -172,7 +176,9 @@ const mockHelpRequests: HelpRequest[] = [
     location: 'Mandalay District, Central Park',
     lat: 21.9588,
     lng: 96.0891,
+    region: 'Mandalay',
     image: '/api/placeholder/400/300',
+    urgency: 'medium',
     status: 'partially_accepted',
     requestedBy: 'Shelter Manager',
     requestedAt: new Date(Date.now() - 4 * 60 * 60 * 1000),
@@ -209,17 +215,40 @@ const mockHelpRequests: HelpRequest[] = [
     location: 'Industrial Zone, Block 5',
     lat: 16.8509,
     lng: 96.1835,
+    region: 'Sagaing',
     image: '/api/placeholder/400/300',
-    status: 'completed',
+    urgency: 'high',
+    status: 'pending',
     requestedBy: 'Fire Department',
     requestedAt: new Date(Date.now() - 6 * 60 * 60 * 1000),
     requiredItems: [
-      { category: 'Accessories', unit: 'sets', quantity: 10 },
-      { category: 'Medicine', unit: 'boxes', quantity: 20 }
-    ],
-    completedBy: 'Rescue Team A',
-    completedAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
-    proofImage: '/api/placeholder/400/300'
+      { category: 'Medicine', unit: 'boxes', quantity: 30 },
+      { category: 'Water', unit: 'bottles', quantity: 150 },
+      { category: 'Food pack', unit: 'packs', quantity: 100 },
+      { category: 'Clothes', unit: 'packs', quantity: 80 },
+      { category: 'Blanket', unit: 'pieces', quantity: 120 }
+    ]
+  },
+  {
+    id: '4',
+    title: 'Emergency Relief',
+    description: '',
+    location: 'NayPyiTaw City Center',
+    lat: 19.7633,
+    lng: 96.0785,
+    region: 'NayPyiTaw',
+    image: '/api/placeholder/400/300',
+    urgency: 'high',
+    status: 'partially_accepted',
+    requestedBy: 'Relief Organization',
+    requestedAt: new Date(Date.now() - 3 * 60 * 60 * 1000),
+    requiredItems: [
+      { category: 'Food pack', unit: 'packs', quantity: 300 },
+      { category: 'Water', unit: 'bottles', quantity: 500 },
+      { category: 'Medicine', unit: 'boxes', quantity: 75 },
+      { category: 'Clothes', unit: 'packs', quantity: 200 },
+      { category: 'Blanket', unit: 'pieces', quantity: 250 }
+    ]
   }
 ]
 
@@ -300,6 +329,7 @@ export default function OrganizationPage() {
   const router = useRouter()
   const [volunteers, setVolunteers] = useState<Volunteer[]>(mockVolunteers)
   const [helpRequests, setHelpRequests] = useState<HelpRequest[]>(mockHelpRequests)
+  const [regionFilter, setRegionFilter] = useState<string>('all')
   const [partnerOrgs, setPartnerOrgs] = useState<PartnerOrg[]>(mockPartnerOrgs)
   const [supplies, setSupplies] = useState<Supply[]>(mockSupplies)
   const [selectedRequest, setSelectedRequest] = useState<HelpRequest | null>(null)
@@ -618,6 +648,15 @@ export default function OrganizationPage() {
     return (request.acceptedItems && request.acceptedItems.length > 0) || false
   }
 
+  const getUrgencyColor = (urgency: string) => {
+    switch (urgency) {
+      case 'high': return 'bg-red-100 text-red-800'
+      case 'medium': return 'bg-yellow-100 text-yellow-800'
+      case 'low': return 'bg-green-100 text-green-800'
+      default: return 'bg-gray-100 text-gray-800'
+    }
+  }
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'active': return 'bg-green-100 text-green-800'
@@ -732,13 +771,6 @@ export default function OrganizationPage() {
                         <Badge className={getStatusColor(request.status)}>
                           {request.status === 'partially_accepted' ? 'Partially Accepted' : request.status}
                         </Badge>
-                        {hasAcceptedItems(request) && (
-                          <Badge className="bg-green-100 text-green-800">
-                            <Check className="w-3 h-3 mr-1" />
-                            Accepted
-                          </Badge>
-                        )}
-
                       </div>
                       {request.description && (
                         <p className="text-sm text-gray-600 mb-3">{request.description}</p>
@@ -821,9 +853,9 @@ export default function OrganizationPage() {
               <Warehouse className="w-4 h-4" />
               Supply Management
             </TabsTrigger>
-            <TabsTrigger value="statistics" className="flex items-center gap-2">
-              <TrendingUp className="w-4 h-4" />
-              Statistics
+            <TabsTrigger value="supplies-needed" className="flex items-center gap-2">
+              <Package className="w-4 h-4" />
+              Total Needed Supplies
             </TabsTrigger>
             <TabsTrigger value="collaboration" className="flex items-center gap-2">
               <Handshake className="w-4 h-4" />
@@ -1302,158 +1334,143 @@ export default function OrganizationPage() {
             </Card>
           </TabsContent>
 
-          {/* Statistics */}
-          <TabsContent value="statistics" className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Accepted Requests Stats */}
+          {/* Total Needed Supplies */}
+          <TabsContent value="supplies-needed" className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                    <Check className="w-5 h-5 text-green-500" />
-                    Accepted Requests
-                </CardTitle>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Package className="w-5 h-5 text-blue-500" />
+                      Total Needed Supplies
+                    </CardTitle>
+                    <CardDescription>
+                      Aggregated supply needs from all confirmed help requests by region
+                    </CardDescription>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Label htmlFor="region-filter" className="text-sm">Filter by Region:</Label>
+                    <Select value={regionFilter} onValueChange={setRegionFilter}>
+                      <SelectTrigger id="region-filter" className="w-[180px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Regions</SelectItem>
+                        <SelectItem value="Yangon">Yangon</SelectItem>
+                        <SelectItem value="Mandalay">Mandalay</SelectItem>
+                        <SelectItem value="Sagaing">Sagaing</SelectItem>
+                        <SelectItem value="NayPyiTaw">NayPyiTaw</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                    <div className="text-3xl font-bold text-green-600">
-                      {helpRequests.filter(r => hasAcceptedItems(r)).length}
-                          </div>
-                    <p className="text-sm text-gray-600">
-                      Total requests you have accepted
-                    </p>
-                    <div className="space-y-2">
-                      {helpRequests
-                        .filter(r => hasAcceptedItems(r))
-                        .map((request) => (
-                          <div key={request.id} className="p-3 border rounded-lg">
-                            <div className="font-medium text-sm">{request.title}</div>
-                            <div className="text-xs text-gray-500 mt-1">
-                              {request.acceptedItems?.map(ai => `${ai.acceptedQuantity} ${ai.unit} ${ai.category}`).join(', ')}
-                            </div>
-                                      </div>
-                                    ))}
-                                </div>
-                        </div>
-                </CardContent>
-              </Card>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Region</TableHead>
+                      <TableHead>Category</TableHead>
+                      <TableHead>Unit</TableHead>
+                      <TableHead>Total Quantity Needed</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(() => {
+                      // Get all confirmed help requests (pending or partially_accepted - these are the active requests)
+                      const confirmedRequests = helpRequests.filter(
+                        r => (r.status === 'pending' || r.status === 'partially_accepted') && r.region
+                      )
 
-              {/* Completed Requests Stats */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Shield className="w-5 h-5 text-blue-500" />
-                    Completed Requests
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div className="text-3xl font-bold text-blue-600">
-                      {helpRequests.filter(r => r.status === 'completed' && r.completedBy === user?.name).length}
-                        </div>
-                    <p className="text-sm text-gray-600">
-                      Requests you have completed
-                    </p>
-                                <div className="space-y-2">
-                      {helpRequests
-                        .filter(r => r.status === 'completed' && r.completedBy === user?.name)
-                        .map((request) => (
-                          <div key={request.id} className="p-3 border rounded-lg">
-                            <div className="font-medium text-sm">{request.title}</div>
-                            <div className="text-xs text-gray-500 mt-1">
-                              Completed on {request.completedAt?.toLocaleDateString()}
-                      </div>
-                                      </div>
-                                    ))}
-                                </div>
-                  </div>
-                </CardContent>
-                    </Card>
+                      // Filter by region if filter is set
+                      const filteredRequests = regionFilter === 'all' 
+                        ? confirmedRequests 
+                        : confirmedRequests.filter(r => r.region === regionFilter)
 
-              {/* Supply Distribution */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Package className="w-5 h-5 text-purple-500" />
-                    Supply Distribution
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {helpRequests
-                      .filter(r => hasAcceptedItems(r))
-                      .reduce((acc, request) => {
-                        request.acceptedItems?.forEach(ai => {
-                          const existing = acc.find(item => item.category === ai.category)
-                          if (existing) {
-                            existing.quantity += ai.acceptedQuantity
-                          } else {
-                            acc.push({
-                              category: ai.category,
-                              unit: ai.unit,
-                              quantity: ai.acceptedQuantity
-                            })
-                          }
-                        })
-                        return acc
-                      }, [] as { category: string; unit: string; quantity: number }[])
-                      .map((item, idx) => (
-                        <div key={idx} className="flex items-center justify-between p-2 bg-gray-50 rounded">
-                          <div className="flex items-center gap-2">
-                            <Package className="w-4 h-4 text-gray-500" />
-                            <span className="font-medium">{item.category}</span>
-                        </div>
-                          <span className="text-sm text-gray-600">
-                            {item.quantity} {item.unit}
-                          </span>
-                      </div>
-                      ))}
-                    {helpRequests.filter(r => hasAcceptedItems(r)).length === 0 && (
-                      <p className="text-sm text-gray-500 text-center py-4">
-                        No supplies distributed yet
-                      </p>
-                    )}
-                </div>
-              </CardContent>
-            </Card>
+                      // Get unique regions
+                      const regions = Array.from(new Set(filteredRequests.map(r => r.region).filter(Boolean))) as string[]
+                      
+                      // Standard supply categories
+                      const standardCategories = ['Food Packs', 'Water Bottles', 'Medicine Box', 'Clothes Packs', 'Blankets']
+                      const categoryMap: Record<string, string> = {
+                        'Food pack': 'Food Packs',
+                        'Food': 'Food Packs',
+                        'Water': 'Water Bottles',
+                        'Medicine': 'Medicine Box',
+                        'Clothes': 'Clothes Packs',
+                        'Clothing': 'Clothes Packs',
+                        'Blanket': 'Blankets',
+                        'Blankets': 'Blankets'
+                      }
 
-              {/* Activity Timeline */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Clock className="w-5 h-5 text-orange-500" />
-                    Recent Activity
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {helpRequests
-                      .filter(r => hasAcceptedItems(r) || r.status === 'completed')
-                      .sort((a, b) => {
-                        const aTime = a.acceptedItems?.[0]?.acceptedAt || a.completedAt || a.requestedAt
-                        const bTime = b.acceptedItems?.[0]?.acceptedAt || b.completedAt || b.requestedAt
-                        return bTime.getTime() - aTime.getTime()
-                      })
-                      .slice(0, 5)
-                      .map((request) => (
-                        <div key={request.id} className="p-3 border rounded-lg">
-                          <div className="font-medium text-sm">{request.title}</div>
-                          <div className="text-xs text-gray-500 mt-1">
-                            {request.status === 'completed' 
-                              ? `Completed on ${request.completedAt?.toLocaleString()}`
-                              : `Accepted on ${request.acceptedItems?.[0]?.acceptedAt.toLocaleString()}`
+                      // Unit mapping for each category
+                      const unitMap: Record<string, string> = {
+                        'Food Packs': 'packs',
+                        'Water Bottles': 'bottles',
+                        'Medicine Box': 'boxes',
+                        'Clothes Packs': 'packs',
+                        'Blankets': 'pieces'
+                      }
+
+                      if (regions.length === 0) {
+                        return (
+                          <TableRow>
+                            <TableCell colSpan={4} className="text-center py-8 text-gray-500">
+                              No confirmed help requests with supply needs found.
+                            </TableCell>
+                          </TableRow>
+                        )
+                      }
+
+                      // Build table rows: for each region, show all 5 categories
+                      const rows: React.ReactElement[] = []
+                      
+                      regions.forEach(region => {
+                        // Aggregate supplies for this region
+                        const regionRequests = filteredRequests.filter(r => r.region === region)
+                        const regionSupplies: Record<string, number> = {}
+                        
+                        regionRequests.forEach(request => {
+                          request.requiredItems.forEach(item => {
+                            const standardCategory = categoryMap[item.category] || item.category
+                            if (standardCategories.includes(standardCategory)) {
+                              const key = standardCategory
+                              regionSupplies[key] = (regionSupplies[key] || 0) + item.quantity
                             }
-                          </div>
-                        </div>
-                      ))}
-                    {helpRequests.filter(r => hasAcceptedItems(r) || r.status === 'completed').length === 0 && (
-                      <p className="text-sm text-gray-500 text-center py-4">
-                        No recent activity
-                      </p>
-                    )}
-                </div>
+                          })
+                        })
+
+                        // Create rows for all 5 categories for this region
+                        standardCategories.forEach((category, idx) => {
+                          const quantity = regionSupplies[category] || 0
+                          const unit = unitMap[category]
+                          
+                          rows.push(
+                            <TableRow key={`${region}-${category}`}>
+                              {idx === 0 ? (
+                                <TableCell rowSpan={standardCategories.length} className="font-medium align-top border-r">
+                                  {region}
+                                </TableCell>
+                              ) : null}
+                              <TableCell className="font-medium">{category}</TableCell>
+                              <TableCell>{unit}</TableCell>
+                              <TableCell>
+                                <div className="flex items-center gap-2">
+                                  <Package className="w-4 h-4 text-gray-500" />
+                                  <span className="font-semibold text-lg">{quantity.toLocaleString()}</span>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })
+                      })
+
+                      return rows
+                    })()}
+                  </TableBody>
+                </Table>
               </CardContent>
             </Card>
-            </div>
           </TabsContent>
 
           {/* Collaboration */}
