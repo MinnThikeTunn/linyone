@@ -1,26 +1,21 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import {
-  Heart,
-  Shield,
-  Users,
-  BookOpen,
-  MapPin,
-  CheckCircle,
-  Clock,
+
+import { useState, useEffect } from 'react'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Progress } from '@/components/ui/progress'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { 
+  Heart, 
+  Shield, 
+  Users, 
+  BookOpen, 
+  MapPin, 
+  CheckCircle, 
+  Clock, 
   AlertTriangle,
   Plus,
   MessageCircle,
@@ -29,12 +24,13 @@ import {
   Play,
   Award,
   Settings,
-} from "lucide-react";
-import { useLanguage } from "@/hooks/use-language";
-import { useAuth } from "@/hooks/use-auth";
-import FamilyTab from "@/components/family-tab";
-import { fetchFamilyMembers } from "@/services/family";
-import { supabase } from "@/lib/supabase";
+  
+} from 'lucide-react'
+import { useLanguage } from '@/hooks/use-language'
+import { useAuth } from '@/hooks/use-auth'
+import FamilyTab from '@/components/family-tab'
+import { fetchFamilyMembers } from '@/services/family'
+import { supabase } from '@/lib/supabase'
 
 import { mockSafetyModules } from "@/data/mockSafetyModules";
 import Link from "next/link";
@@ -67,12 +63,12 @@ export default function DashboardPage() {
   const [safetyModules, setSafetyModules] =
     useState<SafetyModule[]>(mockSafetyModules);
   const [showAddMember, setShowAddMember] = useState(false);
-  const [searchIdentifier, setSearchIdentifier] = useState("");
+  const [searchIdentifier, setSearchIdentifier] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [selectedFound, setSelectedFound] = useState<any | null>(null);
   const [searching, setSearching] = useState(false);
   const [searchTimeout, setSearchTimeout] = useState<any>(null);
-  const [memberRelation, setMemberRelation] = useState("");
+  const [memberRelation, setMemberRelation] = useState('');
   const [newMember, setNewMember] = useState({
     name: "",
     phone: "",
@@ -82,6 +78,7 @@ export default function DashboardPage() {
 
   const handleAddFamilyMember = () => {
     if (!newMember.name || !newMember.phone) return;
+
 
     const member: FamilyMember = {
       id: Date.now().toString(),
@@ -179,78 +176,56 @@ export default function DashboardPage() {
       try {
         channel = supabase
           .channel(`family_members:${user.id}`)
-          .on(
-            "postgres_changes",
-            {
-              event: "INSERT",
-              schema: "public",
-              table: "family_members",
-              filter: `user_id=eq.${user.id}`,
-            },
-            async () => {
-              const links = await fetchFamilyMembers(user.id);
-              const mapped = (links || []).map((l: any) => ({
-                id: l.member?.id ?? l.id,
-                name: l.member?.name ?? "Unknown",
-                phone: l.member?.phone ?? "",
-                uniqueId: l.member?.id ?? l.id,
-                status: l.safety_status ?? null,
-                safety_check_started_at: l.safety_check_started_at,
-                safety_check_expires_at: l.safety_check_expires_at,
-                lastSeen: new Date(),
-              }));
-              const seen2 = new Set<string>();
-              const deduped2 = mapped.filter((m: any) => {
-                const key = m.id;
-                if (!key) return false;
-                if (seen2.has(key)) return false;
-                seen2.add(key);
-                return true;
-              });
-              setFamilyMembers(deduped2);
-            }
-          )
+          .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'family_members', filter: `user_id=eq.${user.id}` }, async () => {
+            const links = await fetchFamilyMembers(user.id)
+            const mapped = (links || []).map((l: any) => ({
+              id: l.member?.id ?? l.id,
+              name: l.member?.name ?? 'Unknown',
+              phone: l.member?.phone ?? '',
+              uniqueId: l.member?.id ?? l.id,
+              status: l.safety_status ?? null,
+              safety_check_started_at: l.safety_check_started_at,
+              safety_check_expires_at: l.safety_check_expires_at,
+              lastSeen: new Date()
+            }))
+            const seen2 = new Set<string>()
+            const deduped2 = mapped.filter((m: any) => {
+              const key = m.id
+              if (!key) return false
+              if (seen2.has(key)) return false
+              seen2.add(key)
+              return true
+            })
+            setFamilyMembers(deduped2)
+          })
           // Intentionally skip UPDATE subscription for safety status so UI changes only when the
           // corresponding notification arrives (keeps status + notification in sync timing)
-          .on(
-            "postgres_changes",
-            {
-              event: "DELETE",
-              schema: "public",
-              table: "family_members",
-              filter: `user_id=eq.${user.id}`,
-            },
-            async () => {
-              const links = await fetchFamilyMembers(user.id);
-              const mapped = (links || []).map((l: any) => ({
-                id: l.member?.id ?? l.id,
-                name: l.member?.name ?? "Unknown",
-                phone: l.member?.phone ?? "",
-                uniqueId: l.member?.id ?? l.id,
-                status: l.safety_status ?? null,
-                safety_check_started_at: l.safety_check_started_at,
-                safety_check_expires_at: l.safety_check_expires_at,
-                lastSeen: new Date(),
-              }));
-              setFamilyMembers(mapped);
-            }
-          )
-          .subscribe();
+          .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'family_members', filter: `user_id=eq.${user.id}` }, async () => {
+            const links = await fetchFamilyMembers(user.id)
+            const mapped = (links || []).map((l: any) => ({
+              id: l.member?.id ?? l.id,
+              name: l.member?.name ?? 'Unknown',
+              phone: l.member?.phone ?? '',
+              uniqueId: l.member?.id ?? l.id,
+              status: l.safety_status ?? null,
+              safety_check_started_at: l.safety_check_started_at,
+              safety_check_expires_at: l.safety_check_expires_at,
+              lastSeen: new Date()
+            }))
+            setFamilyMembers(mapped)
+          })
+          .subscribe()
       } catch (e) {
-        console.warn("failed to subscribe family_members", e);
+        console.warn('failed to subscribe family_members', e)
       }
-    };
-    load();
+    }
+    load()
     return () => {
-      try {
-        (channel as any)?.unsubscribe?.();
-      } catch {}
-    };
-  }, [user?.id]);
+      try { (channel as any)?.unsubscribe?.() } catch {}
+    }
+  }, [user?.id])
 
-  const safeFamilyMembers = familyMembers.filter(
-    (m) => m.status === "safe"
-  ).length;
+  const safeFamilyMembers = familyMembers.filter((m) => m.status === "safe").length;
 
   // if (!isAuthenticated) {
   //   return (
@@ -267,7 +242,7 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="max-w-360 mx-auto px-4 sm:px-6 lg:px-8">
+  <div className="max-w-360 mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">
@@ -278,8 +253,8 @@ export default function DashboardPage() {
           </p>
         </div>
 
-        {/* Quick Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-12 md:mb-8">
+    {/* Quick Stats */}
+  <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-12 md:mb-8">
           <Card>
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
