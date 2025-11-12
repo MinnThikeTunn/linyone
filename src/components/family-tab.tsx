@@ -8,11 +8,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { Users, Heart, Plus, MessageCircle, MapPin, XCircle, Search, CheckCircle, AlertTriangle, HelpCircle, Clock } from 'lucide-react'
+import { Users, Heart, Plus, MessageCircle, MapPin, XCircle, Search, CheckCircle, AlertTriangle, HelpCircle, Clock, Loader2 } from 'lucide-react'
 import { TabsContent } from '@/components/ui/tabs'
-import { fetchFamilyMembers, sendMessage, sendFamilyRequest, findUsers, removeFamilyMemberById, sendSafetyCheck } from '@/services/family'
+import { fetchFamilyMembers, sendMessage, sendFamilyRequest, findUsers, removeFamilyMemberById, sendSafetyCheck, getSentFamilyRequests, cancelFamilyRequest } from '@/services/family'
 import { subscribeToNotifications, NotificationRecord, getNotifications } from '@/services/notifications'
-import { useEffect } from 'react'
+import { supabase } from '@/lib/supabase'
+import { useEffect, useMemo } from 'react'
 
 interface Props {
   t: any
@@ -57,6 +58,87 @@ export default function FamilyTab(props: Props) {
     setMemberRelation
   } = props
 
+  const [sentRequests, setSentRequests] = useState<any[]>([])
+
+  // Fetch sent requests and merge with family members
+  useEffect(() => {
+    const loadSentRequests = async () => {
+      if (!user?.id) return
+      try {
+        const requests = await getSentFamilyRequests(user.id)
+        setSentRequests(requests || [])
+      } catch (err) {
+        console.error('failed to load sent requests', err)
+      }
+    }
+    loadSentRequests()
+
+    // Subscribe to family_requests changes
+    if (user?.id) {
+      const channel = supabase
+        .channel(`sent-family-requests-${user.id}`)
+        .on('postgres_changes', 
+          { 
+            event: '*', 
+            schema: 'public', 
+            table: 'family_requests', 
+            filter: `from_user_id=eq.${user.id}` 
+          }, 
+          async () => {
+            const requests = await getSentFamilyRequests(user.id)
+            setSentRequests(requests || [])
+          }
+        )
+        .subscribe()
+
+      return () => {
+        try { (channel as any)?.unsubscribe?.() } catch {}
+      }
+    }
+  }, [user?.id])
+
+  // Merge sent requests with family members to create a unified list
+  const mergedMembers = useMemo(() => {
+    if (!user?.id) return []
+    
+    const memberMap = new Map<string, any>()
+    
+    // First, add all actual family members (linked members)
+    familyMembers.forEach((m: any) => {
+      memberMap.set(m.id, { 
+        ...m, 
+        isLinked: true, 
+        requestStatus: null, 
+        requestId: null 
+      })
+    })
+    
+    // Then, add pending sent requests for members that are NOT yet linked
+    sentRequests.forEach((req: any) => {
+      const memberId = req.to_user_id
+      const existing = memberMap.get(memberId)
+      
+      // Only process pending requests for members that are not yet linked
+      if (req.status === 'pending' && !existing) {
+        // Show pending request for member not yet in family
+        memberMap.set(memberId, {
+          id: memberId,
+          name: req.receiver?.name || 'Unknown',
+          phone: req.receiver?.phone || '',
+          uniqueId: memberId,
+          status: null,
+          isLinked: false,
+          requestStatus: 'pending',
+          requestId: req.id,
+          relation: req.relation
+        })
+      }
+      // If status is rejected, the request is deleted, so it won't appear in sentRequests
+      // If status is approved, the member should now be in familyMembers, so we don't need to handle it here
+    })
+    
+    return Array.from(memberMap.values())
+  }, [familyMembers, sentRequests, user?.id])
 
   const handleSendSafetyCheck = async (memberId: string) => {
     if (!user?.id) return
@@ -76,36 +158,67 @@ export default function FamilyTab(props: Props) {
     }
   }
 
+  const handleCancelRequest = async (requestId: string, memberId: string) => {
+    if (!user?.id) return
+    try {
+      const res = await cancelFamilyRequest(requestId)
+      if (res?.success) {
+        // Remove from sent requests
+        setSentRequests(prev => prev.filter(r => r.id !== requestId))
+        // Reload sent requests to get updated state
+        const requests = await getSentFamilyRequests(user.id)
+        setSentRequests(requests || [])
+      } else {
+        alert('Failed to cancel request')
+      }
+    } catch (err) {
+      console.error(err)
+      alert('Failed to cancel request')
+    }
+  }
+
   // Removed mark-as-done functionality per request
 
   return (
     <>
-      {/* Subscribe to safety-check responses */}
+      {/* Subscribe to safety-check responses and family request updates */}
       {user?.id && (
-        <NotificationsBridge userId={user.id} onResponse={(n: NotificationRecord) => {
-          // Only process safety response notifications
-          if (n.type !== 'safety_check_ok' && n.type !== 'safety_check_not_ok') return
-          const payload: any = n.payload || {}
-          const responderId = payload.responder_id
-          if (!responderId) return
-          setFamilyMembers(prev => prev.map(m => {
-            if (m.id !== responderId) return m
-            // Guard: ensure notification is for current active window
-            const started = m.active_check_started_at || m.safety_check_started_at
-            if (started) {
-              try {
-                const notifTs = new Date(n.created_at).getTime()
-                const startedTs = new Date(started).getTime()
-                if (notifTs < startedTs) {
-                  // Old response from previous window; ignore
-                  return m
+        <NotificationsBridge 
+          userId={user.id} 
+          onResponse={async (n: NotificationRecord) => {
+            // Handle safety response notifications
+            if (n.type === 'safety_check_ok' || n.type === 'safety_check_not_ok') {
+              const payload: any = n.payload || {}
+              const responderId = payload.responder_id
+              if (!responderId) return
+              setFamilyMembers(prev => prev.map(m => {
+                if (m.id !== responderId) return m
+                // Guard: ensure notification is for current active window
+                const started = m.active_check_started_at || m.safety_check_started_at
+                if (started) {
+                  try {
+                    const notifTs = new Date(n.created_at).getTime()
+                    const startedTs = new Date(started).getTime()
+                    if (notifTs < startedTs) {
+                      // Old response from previous window; ignore
+                      return m
+                    }
+                  } catch { /* ignore parse errors */ }
                 }
-              } catch { /* ignore parse errors */ }
+                const mappedStatus = n.type === 'safety_check_not_ok' ? 'danger' : 'safe'
+                return { ...m, status: mappedStatus, safety_status: mappedStatus }
+              }))
             }
-            const mappedStatus = n.type === 'safety_check_not_ok' ? 'danger' : 'safe'
-            return { ...m, status: mappedStatus, safety_status: mappedStatus }
-          }))
-        }} />
+            // Handle family request accepted/rejected notifications
+            else if (n.type === 'family_request_accepted' || n.type === 'family_request_rejected') {
+              // Reload sent requests to update UI
+              if (user?.id) {
+                const requests = await getSentFamilyRequests(user.id)
+                setSentRequests(requests || [])
+              }
+            }
+          }} 
+        />
       )}
       <TabsContent value="family" className="space-y-6">
         <Card>
@@ -236,6 +349,11 @@ export default function FamilyTab(props: Props) {
                                 try {
                                   const res = await sendFamilyRequest(user.id, selectedFound.id, memberRelation)
                                   if (res?.success) {
+                                    // Reload sent requests to show pending status immediately
+                                    if (user?.id) {
+                                      const requests = await getSentFamilyRequests(user.id)
+                                      setSentRequests(requests || [])
+                                    }
                                     alert('Family request sent! Waiting for approval.')
                                     setSearchIdentifier('')
                                     setSearchResults([])
@@ -289,17 +407,27 @@ export default function FamilyTab(props: Props) {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {familyMembers.map((member) => (
+              {mergedMembers.map((member) => (
                 <div key={member.id} className="flex flex-col md:flex-row items-start md:items-center justify-between p-4 border rounded-lg gap-3">
                   <div className="flex items-center gap-4 w-full md:w-auto">
                     <div className="w-12 h-12 md:w-10 md:h-10 bg-blue-100 rounded-full flex items-center justify-center">
                       <Users className="w-5 h-5 text-blue-600" />
                     </div>
                     <div>
-                      <h3 className="font-medium">{member.name}</h3>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-medium">{member.name}</h3>
+                        {member.requestStatus === 'pending' && (
+                          <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
+                            <Clock className="w-3 h-3 mr-1" />
+                            Pending
+                          </Badge>
+                        )}
+                      </div>
                       <p className="text-sm text-gray-600">{member.phone}</p>
                       <p className="text-xs text-gray-500">ID: {member.uniqueId}</p>
-                      {/* Removed inline textual status per requirement */}
+                      {member.relation && (
+                        <p className="text-xs text-blue-600 mt-1">Relation: {member.relation}</p>
+                      )}
                       {member.location?.address && (
                         <p className="text-xs text-gray-500 flex items-center gap-1 mt-1">
                           <MapPin className="w-3 h-3" />
@@ -310,44 +438,76 @@ export default function FamilyTab(props: Props) {
                   </div>
 
                   <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full md:w-auto">
-                    {renderSafetyControl(member, t, handleSendSafetyCheck)}
-                    {/* Mark Done button removed */}
-                    <Button size="sm" variant="destructive" className="w-full sm:w-auto" onClick={async () => {
-                      if (!user?.id) return
-                      try {
-                        const res = await removeFamilyMemberById(user.id, member.id)
-                        if (res?.success) {
-                          const links = await fetchFamilyMembers(user.id)
-                          const mapped = (links || []).map((l: any) => ({
-                            id: l.member?.id ?? l.id,
-                            name: l.member?.name ?? 'Unknown',
-                            phone: l.member?.phone ?? '',
-                            uniqueId: l.member?.id ?? l.id,
-                            status: 'unknown'
-                          }))
-                          const seen3 = new Set<string>()
-                          const deduped3 = mapped.filter((m) => {
-                            const key = m.id
-                            if (!key) return false
-                            if (seen3.has(key)) return false
-                            seen3.add(key)
-                            return true
-                          })
-                          setFamilyMembers(deduped3)
-                        } else {
-                          console.warn('unlink failed', res?.error)
-                          alert('Failed to unlink member')
-                        }
-                      } catch (err) {
-                        console.error(err)
-                        alert('Failed to unlink member')
-                      }
-                    }}>
-                      Unlink
-                    </Button>
+                    {member.requestStatus === 'pending' ? (
+                      // Show unlink button for pending requests (cancels the request)
+                      <Button 
+                        size="sm" 
+                        variant="destructive" 
+                        className="w-full sm:w-auto" 
+                        onClick={async () => {
+                          if (!member.requestId) return
+                          await handleCancelRequest(member.requestId, member.id)
+                        }}
+                      >
+                        <XCircle className="w-3 h-3 mr-1" />
+                        Unlink
+                      </Button>
+                    ) : member.isLinked ? (
+                      // Show "Are you ok?" button for linked members
+                      <>
+                        {renderSafetyControl(member, t, handleSendSafetyCheck)}
+                        <Button 
+                          size="sm" 
+                          variant="destructive" 
+                          className="w-full sm:w-auto" 
+                          onClick={async () => {
+                            if (!user?.id) return
+                            try {
+                              const res = await removeFamilyMemberById(user.id, member.id)
+                              if (res?.success) {
+                                const links = await fetchFamilyMembers(user.id)
+                                const mapped = (links || []).map((l: any) => ({
+                                  id: l.member?.id ?? l.id,
+                                  name: l.member?.name ?? 'Unknown',
+                                  phone: l.member?.phone ?? '',
+                                  uniqueId: l.member?.id ?? l.id,
+                                  status: l.safety_status ?? null,
+                                  safety_check_started_at: l.safety_check_started_at,
+                                  safety_check_expires_at: l.safety_check_expires_at,
+                                  lastSeen: new Date()
+                                }))
+                                const seen3 = new Set<string>()
+                                const deduped3 = mapped.filter((m) => {
+                                  const key = m.id
+                                  if (!key) return false
+                                  if (seen3.has(key)) return false
+                                  seen3.add(key)
+                                  return true
+                                })
+                                setFamilyMembers(deduped3)
+                              } else {
+                                console.warn('unlink failed', res?.error)
+                                alert('Failed to unlink member')
+                              }
+                            } catch (err) {
+                              console.error(err)
+                              alert('Failed to unlink member')
+                            }
+                          }}
+                        >
+                          Unlink
+                        </Button>
+                      </>
+                    ) : null}
                   </div>
                 </div>
               ))}
+              {mergedMembers.length === 0 && (
+                <div className="text-center py-8 text-gray-500">
+                  <Users className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+                  <p>No family members yet. Add someone to get started!</p>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>

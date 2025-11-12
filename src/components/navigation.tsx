@@ -1,6 +1,6 @@
  'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
@@ -34,7 +34,7 @@ import {
 import { useLanguage } from '@/hooks/use-language'
 import { useAuth } from '@/hooks/use-auth'
 import { fetchUnreadCount, subscribeToIncomingMessages, markAllAsRead, getPendingFamilyRequests, approveFamilyRequest, rejectFamilyRequest } from '@/services/family'
-import { getNotifications, subscribeToNotifications, NotificationRecord, markNotificationRead, markAllNotificationsRead, createNotification, deleteNotification, deleteAllNotifications } from '@/services/notifications'
+import { getNotifications, subscribeToNotifications, NotificationRecord, markNotificationRead, markAllNotificationsRead, createNotification, deleteNotification, deleteAllNotifications, deleteNotificationsByRequestId } from '@/services/notifications'
 import { respondToSafetyCheck } from '@/services/family'
 import { supabase } from '@/lib/supabase'
 
@@ -117,7 +117,15 @@ export function Navigation() {
   const [channel, setChannel] = useState<any | null>(null)
   // Local notification state (copied from navigation1)
   const [notifications, setNotifications] = useState<NotificationRecord[]>([])
-  const [processingRequest, setProcessingRequest] = useState<string | null>(null)
+  const [processingRequest, setProcessingRequest] = useState<{ id: string; action: 'accept' | 'decline' } | null>(null)
+  // Track deleted notification IDs to prevent re-adding (using refs so they're accessible in closures)
+  const deletedNotificationIdsRef = useRef<Set<string>>(new Set())
+  const deletedRequestIdsRef = useRef<Set<string>>(new Set())
+  // Also keep state versions for useEffect dependencies
+  const [deletedNotificationIds, setDeletedNotificationIds] = useState<Set<string>>(new Set())
+  const [deletedRequestIds, setDeletedRequestIds] = useState<Set<string>>(new Set())
+  // Track accepted requests to show "You have accepted the request" message
+  const [acceptedRequests, setAcceptedRequests] = useState<Map<string, any>>(new Map())
 
   const userLabel = user?.role ?? (user?.isAdmin ? 'admin' : user?.accountType)
 
@@ -162,6 +170,7 @@ export function Navigation() {
     if (!isAuthenticated || !user?.id) {
       setUnreadCount(0)
       setPendingRequests([])
+      setAcceptedRequests(new Map())
       return
     }
 
@@ -171,9 +180,10 @@ export function Navigation() {
         setUnreadCount(count ?? 0)
         
         // Load pending family requests (may fail if table doesn't exist yet)
+        let loadedRequests: any[] = []
         try {
-          const requests = await getPendingFamilyRequests(user.id)
-          setPendingRequests(requests || [])
+          loadedRequests = await getPendingFamilyRequests(user.id)
+          setPendingRequests(loadedRequests || [])
         } catch (reqErr) {
           console.warn('Could not load family requests - table may not exist yet:', reqErr)
           setPendingRequests([])
@@ -184,7 +194,7 @@ export function Navigation() {
           setUnreadCount((c) => c + 1)
         })
         
-        // Subscribe to new family requests (may fail if table doesn't exist)
+        // Subscribe to family requests changes (may fail if table doesn't exist)
         try {
           const requestChannel = supabase
             .channel(`family_requests:${user.id}`)
@@ -202,6 +212,180 @@ export function Navigation() {
                 setPendingRequests(requests || [])
               }
             )
+            .on(
+              'postgres_changes',
+              {
+                event: 'DELETE',
+                schema: 'public',
+                table: 'family_requests',
+                filter: `to_user_id=eq.${user.id}`,
+              },
+              async (payload) => {
+                console.log('Family request deleted', payload)
+                const deletedRequestId = payload.old.id
+                // Mark this request as deleted to prevent re-adding notifications for it
+                setDeletedRequestIds((prev) => {
+                  const newSet = new Set([...prev, deletedRequestId])
+                  deletedRequestIdsRef.current = newSet
+                  return newSet
+                })
+                // Remove from pending requests list
+                setPendingRequests((prev) => prev.filter((req: any) => req.id !== deletedRequestId))
+                // Also filter out family_request notifications for this request and mark them as deleted
+                setNotifications((prev) => {
+                  const notificationsToDelete = prev
+                    .filter((n: any) => n.type === 'family_request' && n.payload?.request_id === deletedRequestId)
+                    .map((n) => n.id)
+                  
+                  if (notificationsToDelete.length > 0) {
+                    setDeletedNotificationIds((prevIds) => {
+                      const newSet = new Set([...prevIds, ...notificationsToDelete])
+                      deletedNotificationIdsRef.current = newSet
+                      return newSet
+                    })
+                  }
+                  
+                  return prev.filter((n: any) => {
+                    if (n.type === 'family_request' && n.payload?.request_id === deletedRequestId) {
+                      return false
+                    }
+                    return true
+                  })
+                })
+              }
+            )
+            .on(
+              'postgres_changes',
+              {
+                event: 'UPDATE',
+                schema: 'public',
+                table: 'family_requests',
+                filter: `to_user_id=eq.${user.id}`,
+              },
+              async (payload) => {
+                console.log('Family request updated', payload)
+                const updatedRequest = payload.new as any
+                const oldRequest = payload.old as any
+                
+                // Refresh pending requests list first
+                const requests = await getPendingFamilyRequests(user.id)
+                const newPendingRequestIds = new Set((requests || []).map((req: any) => req.id))
+                
+                // If the request status changed to 'approved', move it to acceptedRequests
+                if (updatedRequest.status === 'approved' && oldRequest.status === 'pending') {
+                  const requestId = updatedRequest.id
+                  
+                  // CRITICAL: Mark this request as deleted IMMEDIATELY to prevent re-adding notifications
+                  setDeletedRequestIds((prev) => {
+                    const newSet = new Set([...prev, requestId])
+                    deletedRequestIdsRef.current = newSet
+                    console.log(`[UPDATE handler] Marked request ${requestId} as deleted in refs`)
+                    return newSet
+                  })
+                  
+                  // CRITICAL: Remove any family_request notifications for this request IMMEDIATELY
+                  // This must happen BEFORE updating pendingRequests to prevent race conditions
+                  setNotifications((prev) => {
+                    const filtered = prev.filter((n: any) => {
+                      // Remove if it's a family_request notification for this request
+                      if (n.type === 'family_request' && n.payload?.request_id === requestId) {
+                        console.log(`[UPDATE handler] Removing notification ${n.id} for approved request ${requestId}`)
+                        // Mark notification as deleted
+                        setDeletedNotificationIds((prevIds) => {
+                          const newSet = new Set([...prevIds, n.id])
+                          deletedNotificationIdsRef.current = newSet
+                          return newSet
+                        })
+                        return false
+                      }
+                      // Remove deleted notification IDs
+                      if (deletedNotificationIdsRef.current.has(n.id)) {
+                        return false
+                      }
+                      // Filter out family_request notifications for deleted requests
+                      if (n.type === 'family_request' && n.payload?.request_id && deletedRequestIdsRef.current.has(n.payload.request_id)) {
+                        return false
+                      }
+                      return true
+                    })
+                    
+                    // Only update if filtering changed something
+                    if (filtered.length !== prev.length || filtered.some((n, i) => n.id !== prev[i]?.id)) {
+                      console.log(`[UPDATE handler] Filtered notifications: ${prev.length} -> ${filtered.length}`)
+                      return filtered
+                    }
+                    return prev
+                  })
+                  
+                  // Check if we have this request in pendingRequests (before refresh)
+                  setPendingRequests((prev) => {
+                    const requestInPending = prev.find((req: any) => req.id === requestId)
+                    if (requestInPending && !newPendingRequestIds.has(requestId)) {
+                      // Move it to acceptedRequests only if it's not in the refreshed list
+                      setAcceptedRequests((prevAccepted) => {
+                        const newMap = new Map(prevAccepted)
+                        // Only add if not already in acceptedRequests
+                        if (!newMap.has(requestId)) {
+                          newMap.set(requestId, { ...requestInPending, acceptedAt: new Date().toISOString() })
+                        }
+                        return newMap
+                      })
+                    }
+                    // Return the refreshed list (which excludes the approved request)
+                    return requests || []
+                  })
+                } else {
+                  // Just refresh pending requests
+                  setPendingRequests(requests || [])
+                  
+                  // Filter out family_request notifications that no longer have pending requests
+                  const pendingRequestIds = new Set((requests || []).map((req: any) => req.id))
+                  setNotifications((prev) => {
+                    const filtered = prev.filter((n: any) => {
+                      // Remove deleted notification IDs
+                      if (deletedNotificationIdsRef.current.has(n.id)) {
+                        return false
+                      }
+                      // Filter out family_request notifications for deleted requests
+                      if (n.type === 'family_request' && n.payload?.request_id && deletedRequestIdsRef.current.has(n.payload.request_id)) {
+                        return false
+                      }
+                      // Filter out family_request notifications that no longer have pending requests
+                      if (n.type === 'family_request' && n.payload?.request_id) {
+                        if (!pendingRequestIds.has(n.payload.request_id)) {
+                          // Mark this request as deleted if it's no longer pending
+                          const requestId = n.payload.request_id
+                          setDeletedRequestIds((prevIds) => {
+                            if (!prevIds.has(requestId)) {
+                              const newSet = new Set([...prevIds, requestId])
+                              deletedRequestIdsRef.current = newSet
+                              return newSet
+                            }
+                            return prevIds
+                          })
+                          // Mark this notification as deleted
+                          setDeletedNotificationIds((prevIds) => {
+                            if (!prevIds.has(n.id)) {
+                              const newSet = new Set([...prevIds, n.id])
+                              deletedNotificationIdsRef.current = newSet
+                              return newSet
+                            }
+                            return prevIds
+                          })
+                          return false
+                        }
+                      }
+                      return true
+                    })
+                    // Only update if filtering changed something
+                    if (filtered.length !== prev.length || filtered.some((n, i) => n.id !== prev[i]?.id)) {
+                      return filtered
+                    }
+                    return prev
+                  })
+                }
+              }
+            )
             .subscribe()
         } catch (channelErr) {
           console.warn('Could not subscribe to family_requests channel:', channelErr)
@@ -210,20 +394,109 @@ export function Navigation() {
         // Load existing notifications
         try {
           const existing = await getNotifications(user.id)
-          setNotifications(existing)
+          // Filter out family_request notifications that don't have a corresponding pending request
+          // Use loadedRequests instead of pendingRequests state to ensure we have the latest data
+          const pendingRequestIds = new Set((loadedRequests || []).map((req: any) => req.id))
+          const filteredNotifications = existing.filter((n: any) => {
+            // Skip deleted notification IDs
+            if (deletedNotificationIdsRef.current.has(n.id)) {
+              return false
+            }
+            
+            // CRITICAL: Filter out ALL family_request notifications from the notifications list
+            // They should only appear in the Family Requests section, not in the notifications list
+            if (n.type === 'family_request') {
+              // Mark notification as deleted to prevent re-adding
+              setDeletedNotificationIds((prev) => {
+                const newSet = new Set([...prev, n.id])
+                deletedNotificationIdsRef.current = newSet
+                return newSet
+              })
+              return false
+            }
+            
+            // Keep all other notifications
+            return true
+          })
+          setNotifications(filteredNotifications)
+          console.log(`Initial load: filtered ${existing.length} notifications to ${filteredNotifications.length}`)
           // Polling fallback to ensure UI stays in sync if realtime misses
           const pollInterval = setInterval(async () => {
             try {
               const refreshed = await getNotifications(user.id)
-              // Merge: add any new by id, keep existing read states
-              setNotifications(prev => {
-                const map = new Map(prev.map(p => [p.id, p]))
-                for (const r of refreshed) {
-                  if (!map.has(r.id)) map.set(r.id, r)
+              // Get current pending requests to filter notifications
+              const currentRequests = await getPendingFamilyRequests(user.id)
+              const currentPendingRequestIds = new Set((currentRequests || []).map((req: any) => req.id))
+              
+              // Filter notifications FIRST before merging - remove deleted and invalid ones
+              const filteredRefreshed = refreshed.filter((r: any) => {
+                // Skip deleted notification IDs
+                if (deletedNotificationIdsRef.current.has(r.id)) {
+                  return false
                 }
+                
+                // CRITICAL: Filter out ALL family_request notifications from the notifications list
+                // They should only appear in the Family Requests section, not in the notifications list
+                if (r.type === 'family_request') {
+                  // Mark notification as deleted to prevent re-adding
+                  setDeletedNotificationIds((prev) => {
+                    const newSet = new Set([...prev, r.id])
+                    deletedNotificationIdsRef.current = newSet
+                    return newSet
+                  })
+                  return false
+                }
+                
+                return true
+              })
+              
+              // Merge: add any new by id, keep existing read states, but filter out deleted ones
+              setNotifications(prev => {
+                // Start with existing notifications that are not deleted
+                const validPrev = prev.filter((n: any) => {
+                  // Remove deleted notification IDs
+                  if (deletedNotificationIdsRef.current.has(n.id)) {
+                    return false
+                  }
+                  // CRITICAL: Filter out ALL family_request notifications from the notifications list
+                  // They should only appear in the Family Requests section, not in the notifications list
+                  if (n.type === 'family_request') {
+                    return false
+                  }
+                  return true
+                })
+                
+                // Create a map of valid previous notifications
+                const map = new Map(validPrev.map(p => [p.id, p]))
+                
+                // Add/update filtered refreshed notifications
+                for (const r of filteredRefreshed) {
+                  // Double-check it's not deleted (in case state changed)
+                  if (deletedNotificationIdsRef.current.has(r.id)) {
+                    continue
+                  }
+                  // Double-check it's not a family_request notification
+                  if (r.type === 'family_request') {
+                    continue
+                  }
+                  
+                  // Update or add notification
+                  if (map.has(r.id)) {
+                    // Update existing, preserve read state if needed
+                    const existing = map.get(r.id)!
+                    map.set(r.id, { ...r, read: existing.read || r.read })
+                  } else {
+                    // Add new
+                    map.set(r.id, r)
+                  }
+                }
+                
+                // Return sorted list
                 return Array.from(map.values()).sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
               })
-            } catch {}
+            } catch (err) {
+              console.error('error in polling interval', err)
+            }
           }, 10000)
           // attach for cleanup
           setChannel((c:any) => ({ ...(c||{}), pollInterval }))
@@ -233,9 +506,83 @@ export function Navigation() {
 
         // Subscribe to notifications realtime
         try {
-          const notifChannel = subscribeToNotifications(user.id, (n) => {
-            setNotifications((prev) => [n, ...prev])
-          })
+          const notifChannel = subscribeToNotifications(
+            user.id,
+            (n) => {
+              console.log(`[Real-time INSERT] Received notification ${n.id} of type ${n.type}`)
+              
+              // CRITICAL: Check if notification ID is deleted FIRST (before any other checks)
+              if (deletedNotificationIdsRef.current.has(n.id)) {
+                console.log(`[Real-time INSERT] Skipping deleted notification ${n.id}`)
+                return
+              }
+              
+              // CRITICAL: Filter out ALL family_request notifications from the notifications list
+              // They should only appear in the Family Requests section, not in the notifications list
+              if (n.type === 'family_request') {
+                console.log(`[Real-time INSERT] Skipping family_request notification ${n.id} - should only appear in Family Requests section`)
+                // Mark notification as deleted to prevent re-adding
+                setDeletedNotificationIds((prev) => {
+                  const newSet = new Set([...prev, n.id])
+                  deletedNotificationIdsRef.current = newSet
+                  return newSet
+                })
+                // Remove from notifications if it exists
+                setNotifications((prev) => {
+                  const filtered = prev.filter((notif) => notif.id !== n.id)
+                  if (filtered.length !== prev.length) {
+                    console.log(`[Real-time INSERT] Removed family_request notification ${n.id} from state`)
+                  }
+                  return filtered
+                })
+                return
+              }
+              
+              // For non-family_request notifications, add directly if not deleted
+              console.log(`[Real-time INSERT] Adding non-family_request notification ${n.id}`)
+              setNotifications((prev) => {
+                // Double-check in case state changed
+                if (deletedNotificationIdsRef.current.has(n.id)) {
+                  console.log(`[Real-time INSERT] Notification ${n.id} is marked as deleted, skipping`)
+                  return prev
+                }
+                
+                // Check if notification already exists to avoid duplicates
+                const exists = prev.some(notif => notif.id === n.id)
+                if (exists) {
+                  // Update existing notification only if not deleted
+                  return prev.map(notif => notif.id === n.id ? n : notif)
+                }
+                // Add new notification at the beginning
+                return [n, ...prev].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+              })
+            },
+            {
+              onDelete: (notificationId) => {
+                console.log(`[Real-time DELETE] Notification ${notificationId} deleted from database`)
+                // Notification deleted - remove from list and mark as deleted
+                setDeletedNotificationIds((prev) => {
+                  const newSet = new Set([...prev, notificationId])
+                  deletedNotificationIdsRef.current = newSet
+                  console.log(`[Real-time DELETE] Marked notification ${notificationId} as deleted in refs`)
+                  return newSet
+                })
+                setNotifications((prev) => {
+                  const filtered = prev.filter((n) => n.id !== notificationId)
+                  if (filtered.length !== prev.length) {
+                    console.log(`[Real-time DELETE] Removed notification ${notificationId} from state`)
+                  }
+                  return filtered
+                })
+              },
+              onUpdate: (n) => {
+                // Notification updated (e.g., marked as read) - update in list only if not deleted
+                if (!deletedNotificationIdsRef.current.has(n.id)) {
+                  setNotifications((prev) => prev.map(notif => notif.id === n.id ? n : notif))
+                }
+              }
+            }
+          )
           setChannel({ messages: sub, notifications: notifChannel })
         } catch (e) {
           console.warn('failed to subscribe notifications', e)
@@ -275,10 +622,97 @@ export function Navigation() {
     }
   }, [isAuthenticated, user?.id])
 
+  // Filter out family_request notifications that don't have a corresponding pending request
+  // This ensures notifications stay in sync with pendingRequests
+  useEffect(() => {
+    if (!user?.id) {
+      return
+    }
+    
+    setNotifications((prev) => {
+      let filtered = prev.filter((n: any) => {
+        // Always remove deleted notification IDs (check both state and ref)
+        if (deletedNotificationIds.has(n.id) || deletedNotificationIdsRef.current.has(n.id)) {
+          // Ensure it's in both state and ref
+          if (!deletedNotificationIdsRef.current.has(n.id)) {
+            deletedNotificationIdsRef.current.add(n.id)
+          }
+          return false
+        }
+        
+        // Filter out family_request notifications for deleted requests (check both state and ref)
+        if (n.type === 'family_request' && n.payload?.request_id) {
+          if (deletedRequestIds.has(n.payload.request_id) || deletedRequestIdsRef.current.has(n.payload.request_id)) {
+            // Ensure it's in both state and ref
+            if (!deletedRequestIdsRef.current.has(n.payload.request_id)) {
+              deletedRequestIdsRef.current.add(n.payload.request_id)
+            }
+            // Also mark notification as deleted
+            if (!deletedNotificationIdsRef.current.has(n.id)) {
+              setDeletedNotificationIds((prevIds) => {
+                const newSet = new Set([...prevIds, n.id])
+                deletedNotificationIdsRef.current = newSet
+                return newSet
+              })
+            }
+            return false
+          }
+        }
+        
+        // If no pending requests, filter out all family_request notifications
+        if (pendingRequests.length === 0) {
+          if (n.type === 'family_request') {
+            // Mark notification as deleted
+            if (!deletedNotificationIdsRef.current.has(n.id)) {
+              setDeletedNotificationIds((prevIds) => {
+                const newSet = new Set([...prevIds, n.id])
+                deletedNotificationIdsRef.current = newSet
+                return newSet
+              })
+            }
+            return false
+          }
+        } else {
+          // Filter notifications based on current pendingRequests
+          if (n.type === 'family_request' && n.payload?.request_id) {
+            const pendingRequestIds = new Set(pendingRequests.map((req: any) => req.id))
+            // Only keep family_request notifications if they have a corresponding pending request
+            if (!pendingRequestIds.has(n.payload.request_id)) {
+              // Request is no longer pending, mark as deleted
+              if (!deletedRequestIdsRef.current.has(n.payload.request_id)) {
+                setDeletedRequestIds((prevIds) => {
+                  const newSet = new Set([...prevIds, n.payload.request_id])
+                  deletedRequestIdsRef.current = newSet
+                  return newSet
+                })
+              }
+              if (!deletedNotificationIdsRef.current.has(n.id)) {
+                setDeletedNotificationIds((prevIds) => {
+                  const newSet = new Set([...prevIds, n.id])
+                  deletedNotificationIdsRef.current = newSet
+                  return newSet
+                })
+              }
+              return false
+            }
+          }
+        }
+        
+        // Keep all other notifications
+        return true
+      })
+      
+      // Only update if filtering changed something to avoid infinite loops
+      if (filtered.length !== prev.length || filtered.some((n, i) => n.id !== prev[i]?.id)) {
+        return filtered
+      }
+      return prev
+    })
+  }, [pendingRequests, deletedNotificationIds, deletedRequestIds, user?.id])
+
   // ----- Notification helpers (copied from navigation1) -----
   const handleApproveMockRequest = async (notificationId: string) => {
-    // For family_request notifications acceptance occurs via pendingRequests approve button
-    // Here we just mark notification read.
+    // For job notifications, mark as read when approved
     try {
       await markNotificationRead(notificationId)
       setNotifications((prev) => prev.map((n) => n.id === notificationId ? { ...n, read: true } : n))
@@ -288,6 +722,7 @@ export function Navigation() {
   }
 
   const handleRejectMockRequest = async (notificationId: string) => {
+    // For job notifications, mark as read when rejected
     try {
       await markNotificationRead(notificationId)
       setNotifications((prev) => prev.map((n) => n.id === notificationId ? { ...n, read: true } : n))
@@ -350,9 +785,9 @@ export function Navigation() {
               size="sm" 
               className="bg-green-600 hover:bg-green-700 text-white text-xs"
               onClick={() => handleSafeResponse(notification.id)}
-              disabled={processingRequest === notification.id}
+              disabled={processingRequest?.id === notification.id}
             >
-              {processingRequest === notification.id ? (
+              {processingRequest?.id === notification.id ? (
                 <div className="flex items-center">
                   <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin mr-1" />
                   Processing...
@@ -369,9 +804,9 @@ export function Navigation() {
               variant="outline" 
               className="border-red-200 text-red-600 hover:bg-red-50 text-xs"
               onClick={() => handleNotSafeResponse(notification.id)}
-              disabled={processingRequest === notification.id}
+              disabled={processingRequest?.id === notification.id}
             >
-              {processingRequest === notification.id ? (
+              {processingRequest?.id === notification.id ? (
                 <div className="flex items-center">
                   <div className="w-3 h-3 border-2 border-red-600 border-t-transparent rounded-full animate-spin mr-1" />
                   Processing...
@@ -393,9 +828,9 @@ export function Navigation() {
               size="sm" 
               className="bg-green-600 hover:bg-green-700 text-white text-xs"
               onClick={() => handleApproveMockRequest(notification.id)}
-              disabled={processingRequest === notification.id}
+              disabled={processingRequest?.id === notification.id}
             >
-              {processingRequest === notification.id ? (
+              {processingRequest?.id === notification.id ? (
                 <div className="flex items-center">
                   <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin mr-1" />
                   Accepting...
@@ -412,9 +847,9 @@ export function Navigation() {
               variant="outline" 
               className="border-gray-300 text-gray-600 hover:bg-gray-50 text-xs"
               onClick={() => handleRejectMockRequest(notification.id)}
-              disabled={processingRequest === notification.id}
+              disabled={processingRequest?.id === notification.id}
             >
-              {processingRequest === notification.id ? (
+              {processingRequest?.id === notification.id ? (
                 <div className="flex items-center">
                   <div className="w-3 h-3 border-2 border-gray-600 border-t-transparent rounded-full animate-spin mr-1" />
                   Declining...
@@ -429,48 +864,8 @@ export function Navigation() {
           </div>
         )
 
-      case 'family':
-        return (
-          <div className="flex gap-2 mt-3">
-            <Button 
-              size="sm" 
-              className="bg-green-600 hover:bg-green-700 text-white text-xs"
-              onClick={() => handleApproveMockRequest(notification.id)}
-              disabled={processingRequest === notification.id}
-            >
-              {processingRequest === notification.id ? (
-                <div className="flex items-center">
-                  <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin mr-1" />
-                  Accepting...
-                </div>
-              ) : (
-                <div className="flex items-center">
-                  <Check className="w-3 h-3 mr-1" />
-                  Accept
-                </div>
-              )}
-            </Button>
-            <Button 
-              size="sm" 
-              variant="outline" 
-              className="border-gray-300 text-gray-600 hover:bg-gray-50 text-xs"
-              onClick={() => handleRejectMockRequest(notification.id)}
-              disabled={processingRequest === notification.id}
-            >
-              {processingRequest === notification.id ? (
-                <div className="flex items-center">
-                  <div className="w-3 h-3 border-2 border-gray-600 border-t-transparent rounded-full animate-spin mr-1" />
-                  Declining...
-                </div>
-              ) : (
-                <div className="flex items-center">
-                  <XIcon className="w-3 h-3 mr-1" />
-                  Decline
-                </div>
-              )}
-            </Button>
-          </div>
-        )
+      // Removed 'family' case - family_request notifications are now only shown in the Family Requests section
+      // They are filtered out from the notifications list above
 
       default:
         return null
@@ -479,14 +874,275 @@ export function Navigation() {
 
   const handleApproveRequest = async (requestId: string) => {
     try {
-      setProcessingRequest(requestId)
-      await approveFamilyRequest(requestId)
+      setProcessingRequest({ id: requestId, action: 'accept' })
+      
+      console.log(`[handleApproveRequest] Starting approval for request ${requestId}`)
+      
+      // Find the request to keep it for showing the accepted message
+      const requestToAccept = pendingRequests.find((req: any) => req.id === requestId)
+      
+      // CRITICAL STEP 1: Mark this request as deleted FIRST to prevent re-adding notifications
+      // This must happen BEFORE any async operations
+      setDeletedRequestIds((prev) => {
+        const newSet = new Set([...prev, requestId])
+        deletedRequestIdsRef.current = newSet
+        console.log(`[handleApproveRequest] Marked request ${requestId} as deleted in refs`)
+        return newSet
+      })
+      
+      // CRITICAL STEP 2: Find and mark ALL notification IDs to delete IMMEDIATELY
+      // Check both current notifications state AND fetch from database to catch any missed ones
+      let allNotificationIdsToDelete: string[] = []
+      
+      // First, get IDs from current notifications state
+      const notificationsToDeleteFromState = notifications
+        .filter((n) => n.type === 'family_request' && n.payload?.request_id === requestId)
+        .map((n) => n.id)
+      
+      allNotificationIdsToDelete.push(...notificationsToDeleteFromState)
+      
+      // Also fetch from database to catch any that might not be in state
       if (user?.id) {
+        try {
+          const allNotificationsFromDb = await getNotifications(user.id)
+          const notificationsToDeleteFromDb = allNotificationsFromDb
+            .filter((n: any) => n.type === 'family_request' && n.payload?.request_id === requestId)
+            .map((n: any) => n.id)
+          
+          // Add any that weren't in state
+          for (const id of notificationsToDeleteFromDb) {
+            if (!allNotificationIdsToDelete.includes(id)) {
+              allNotificationIdsToDelete.push(id)
+            }
+          }
+        } catch (fetchErr) {
+          console.warn('failed to fetch notifications for deletion', fetchErr)
+        }
+      }
+      
+      console.log(`[handleApproveRequest] Found ${allNotificationIdsToDelete.length} notification(s) to delete:`, allNotificationIdsToDelete)
+      
+      // Mark ALL found notification IDs as deleted IMMEDIATELY
+      if (allNotificationIdsToDelete.length > 0) {
+        setDeletedNotificationIds((prev) => {
+          const newSet = new Set([...prev, ...allNotificationIdsToDelete])
+          deletedNotificationIdsRef.current = newSet
+          console.log(`[handleApproveRequest] Marked ${allNotificationIdsToDelete.length} notification(s) as deleted in refs`)
+          return newSet
+        })
+      }
+      
+      // CRITICAL STEP 3: Remove from UI IMMEDIATELY to prevent flickering
+      setNotifications((prev) => {
+        const filtered = prev.filter((n) => {
+          // Remove if it's a family_request notification with matching request_id
+          if (n.type === 'family_request' && n.payload?.request_id === requestId) {
+            return false
+          }
+          // Also remove if it's in the deleted IDs list
+          if (allNotificationIdsToDelete.includes(n.id)) {
+            return false
+          }
+          return true
+        })
+        console.log(`[handleApproveRequest] Removed notification from UI: ${prev.length} -> ${filtered.length}`)
+        return filtered
+      })
+      
+      // Remove from pendingRequests but add to acceptedRequests to show the message
+      setPendingRequests((prev) => prev.filter((req: any) => req.id !== requestId))
+      
+      // Add to acceptedRequests to show "You have accepted the request" message
+      if (requestToAccept) {
+        setAcceptedRequests((prev) => {
+          const newMap = new Map(prev)
+          newMap.set(requestId, { ...requestToAccept, acceptedAt: new Date().toISOString() })
+          return newMap
+        })
+      }
+      
+      // CRITICAL: FORCE DELETE notifications from database FIRST (before approving request)
+      // This must complete and be verified before proceeding
+      if (!user?.id) {
+        console.error('[handleApproveRequest] No user ID, cannot delete notification')
+        return
+      }
+
+      console.log(`[handleApproveRequest] FORCE DELETING notification for request ${requestId} from database...`)
+      
+      let deletedNotificationIds: string[] = []
+      const maxDeletionAttempts = 5
+
+      // Aggressive deletion with multiple strategies
+      for (let attempt = 1; attempt <= maxDeletionAttempts; attempt++) {
+        try {
+          // Strategy 1: Delete by request_id
+          const deleteResult = await deleteNotificationsByRequestId(user.id, requestId)
+
+          if (deleteResult.success && deleteResult.deleted && deleteResult.deleted > 0 && deleteResult.notificationIds) {
+            deletedNotificationIds = deleteResult.notificationIds
+            console.log(`[handleApproveRequest] Successfully deleted ${deleteResult.deleted} notification(s):`, deletedNotificationIds)
+          }
+
+          // Strategy 2: Also fetch and delete directly by ID (backup)
+          const allNotifications = await getNotifications(user.id)
+          const matchingNotifications = allNotifications.filter((n: any) => 
+            n.type === 'family_request' && n.payload?.request_id === requestId
+          )
+
+          if (matchingNotifications.length > 0) {
+            console.log(`[handleApproveRequest] Found ${matchingNotifications.length} notification(s) to delete directly (attempt ${attempt})`)
+            for (const notif of matchingNotifications) {
+              try {
+                await deleteNotification(notif.id)
+                if (!deletedNotificationIds.includes(notif.id)) {
+                  deletedNotificationIds.push(notif.id)
+                }
+                console.log(`[handleApproveRequest] Directly deleted notification ${notif.id}`)
+              } catch (delErr) {
+                console.error(`[handleApproveRequest] Failed to delete notification ${notif.id}:`, delErr)
+              }
+            }
+          }
+
+          // Wait and verify deletion
+          await new Promise(resolve => setTimeout(resolve, 300))
+          const verifyNotifications = await getNotifications(user.id)
+          const stillExists = verifyNotifications.filter((n: any) => 
+            n.type === 'family_request' && n.payload?.request_id === requestId
+          )
+
+          if (stillExists.length === 0) {
+            console.log(`[handleApproveRequest] Verified: All notifications deleted after attempt ${attempt}`)
+            break
+          } else {
+            console.warn(`[handleApproveRequest] ${stillExists.length} notification(s) still exist after attempt ${attempt}`)
+          }
+
+          // Wait before next attempt
+          if (attempt < maxDeletionAttempts) {
+            await new Promise(resolve => setTimeout(resolve, 400 * attempt))
+          }
+        } catch (err) {
+          console.error(`[handleApproveRequest] Deletion attempt ${attempt} failed:`, err)
+          if (attempt < maxDeletionAttempts) {
+            await new Promise(resolve => setTimeout(resolve, 400 * attempt))
+          }
+        }
+      }
+
+      // Mark all deleted notification IDs in refs
+      if (deletedNotificationIds.length > 0) {
+        setDeletedNotificationIds((prev) => {
+          const newSet = new Set([...prev, ...deletedNotificationIds])
+          deletedNotificationIdsRef.current = newSet
+          return newSet
+        })
+      }
+
+      // Final aggressive check: If any notifications still exist, force delete them
+      const finalCheck = await getNotifications(user.id)
+      const finalMatching = finalCheck.filter((n: any) => 
+        n.type === 'family_request' && n.payload?.request_id === requestId
+      )
+
+      if (finalMatching.length > 0) {
+        console.error(`[handleApproveRequest] CRITICAL: ${finalMatching.length} notification(s) STILL EXIST. Force deleting...`)
+        for (const notif of finalMatching) {
+          try {
+            await deleteNotification(notif.id)
+            if (!deletedNotificationIds.includes(notif.id)) {
+              deletedNotificationIds.push(notif.id)
+            }
+            console.log(`[handleApproveRequest] Force deleted notification ${notif.id}`)
+          } catch (err) {
+            console.error(`[handleApproveRequest] Failed to force delete ${notif.id}:`, err)
+          }
+        }
+        // Mark as deleted locally even if database deletion fails
+        setDeletedNotificationIds((prev) => {
+          const newSet = new Set([...prev, ...finalMatching.map((n: any) => n.id)])
+          deletedNotificationIdsRef.current = newSet
+          return newSet
+        })
+        await new Promise(resolve => setTimeout(resolve, 500))
+      }
+
+      // NOW approve the family request (after notifications are FORCE DELETED)
+      await approveFamilyRequest(requestId)
+      
+      console.log(`[handleApproveRequest] Request ${requestId} approved, notification deleted from database`)
+      
+      console.log(`[handleApproveRequest] Request ${requestId} approved, notification should stay deleted`)
+      
+      // CRITICAL: Don't refresh notifications here - it will cause race conditions
+      // The notification is already deleted and marked as deleted in refs
+      // The real-time UPDATE event will refresh pendingRequests, but we don't want to refresh notifications
+      // because it might re-add the notification if it still exists in the database
+      
+      // Just refresh pending requests list - request should be removed (status changed to approved)
+      if (user?.id) {
+        // Wait a bit to ensure request status update is processed
+        await new Promise(resolve => setTimeout(resolve, 200))
+        
         const requests = await getPendingFamilyRequests(user.id)
         setPendingRequests(requests || [])
+        
+        // Verify that notification is still marked as deleted
+        console.log(`[handleApproveRequest] Verification: deletedNotificationIdsRef has ${Array.from(deletedNotificationIdsRef.current).length} IDs:`, Array.from(deletedNotificationIdsRef.current))
+        console.log(`[handleApproveRequest] Verification: deletedRequestIdsRef has ${Array.from(deletedRequestIdsRef.current).length} IDs:`, Array.from(deletedRequestIdsRef.current))
+        
+        // DON'T refresh notifications here - it causes the notification to reappear
+        // The notification is already deleted from UI and marked as deleted in refs
+        // All refresh paths (polling, real-time) will filter it out based on deleted IDs and pending requests
+        
+        // Double-check that notification is not in state
+        setNotifications((prev) => {
+          const hasNotification = prev.some((n: any) => 
+            n.type === 'family_request' && n.payload?.request_id === requestId
+          )
+          if (hasNotification) {
+            console.warn(`[handleApproveRequest] WARNING: Notification for request ${requestId} still exists in state! Removing it.`)
+            // Force remove any remaining notifications for this request
+            const filtered = prev.filter((n: any) => {
+              if (n.type === 'family_request' && n.payload?.request_id === requestId) {
+                // Mark as deleted
+                setDeletedNotificationIds((prevIds) => {
+                  const newSet = new Set([...prevIds, n.id])
+                  deletedNotificationIdsRef.current = newSet
+                  return newSet
+                })
+                return false
+              }
+              return true
+            })
+            console.log(`[handleApproveRequest] Force removed notification: ${prev.length} -> ${filtered.length}`)
+            return filtered
+          }
+          return prev
+        })
       }
+      
+      // Clear the accepted request after 5 seconds (optional - you can remove this if you want it to persist)
+      // setTimeout(() => {
+      //   setAcceptedRequests((prev) => {
+      //     const newMap = new Map(prev)
+      //     newMap.delete(requestId)
+      //     return newMap
+      //   })
+      // }, 5000)
     } catch (err) {
       console.error('approve request failed', err)
+      // On error, reload both lists to restore correct state
+      if (user?.id) {
+        try {
+          const requests = await getPendingFamilyRequests(user.id)
+          setPendingRequests(requests || [])
+          // Don't refresh notifications on error either - let the useEffect handle it
+        } catch (refreshErr) {
+          console.error('failed to refresh after error', refreshErr)
+        }
+      }
     } finally {
       setProcessingRequest(null)
     }
@@ -494,14 +1150,172 @@ export function Navigation() {
 
   const handleRejectRequest = async (requestId: string) => {
     try {
-      setProcessingRequest(requestId)
+      setProcessingRequest({ id: requestId, action: 'decline' })
+      
+      // Mark this request as deleted to prevent re-adding notifications for it
+      setDeletedRequestIds((prev) => {
+        const newSet = new Set([...prev, requestId])
+        deletedRequestIdsRef.current = newSet
+        return newSet
+      })
+      
+      // Find and mark notification IDs to delete
+      const notificationsToDelete = notifications
+        .filter((n) => n.type === 'family_request' && n.payload?.request_id === requestId)
+        .map((n) => n.id)
+      
+      if (notificationsToDelete.length > 0) {
+        setDeletedNotificationIds((prev) => {
+          const newSet = new Set([...prev, ...notificationsToDelete])
+          deletedNotificationIdsRef.current = newSet
+          return newSet
+        })
+      }
+      
+      // First, immediately remove from local state to update UI
+      setNotifications((prev) => prev.filter((n) => {
+        // Remove if it's a family_request notification with matching request_id
+        if (n.type === 'family_request' && n.payload?.request_id === requestId) {
+          return false
+        }
+        return true
+      }))
+      
+      // Also remove from pendingRequests immediately
+      setPendingRequests((prev) => prev.filter((req: any) => req.id !== requestId))
+      
+      // CRITICAL: FORCE DELETE notifications from database FIRST (before rejecting request)
+      if (!user?.id) {
+        console.error('[handleRejectRequest] No user ID, cannot delete notification')
+        return
+      }
+
+      console.log(`[handleRejectRequest] FORCE DELETING notification for request ${requestId} from database...`)
+      
+      let deletedNotificationIds: string[] = []
+      const maxDeletionAttempts = 5
+
+      // Aggressive deletion with multiple strategies
+      for (let attempt = 1; attempt <= maxDeletionAttempts; attempt++) {
+        try {
+          // Strategy 1: Delete by request_id
+          const deleteResult = await deleteNotificationsByRequestId(user.id, requestId)
+
+          if (deleteResult.success && deleteResult.deleted && deleteResult.deleted > 0 && deleteResult.notificationIds) {
+            deletedNotificationIds = deleteResult.notificationIds
+            console.log(`[handleRejectRequest] Successfully deleted ${deleteResult.deleted} notification(s):`, deletedNotificationIds)
+          }
+
+          // Strategy 2: Also fetch and delete directly by ID (backup)
+          const allNotifications = await getNotifications(user.id)
+          const matchingNotifications = allNotifications.filter((n: any) => 
+            n.type === 'family_request' && n.payload?.request_id === requestId
+          )
+
+          if (matchingNotifications.length > 0) {
+            console.log(`[handleRejectRequest] Found ${matchingNotifications.length} notification(s) to delete directly (attempt ${attempt})`)
+            for (const notif of matchingNotifications) {
+              try {
+                await deleteNotification(notif.id)
+                if (!deletedNotificationIds.includes(notif.id)) {
+                  deletedNotificationIds.push(notif.id)
+                }
+                console.log(`[handleRejectRequest] Directly deleted notification ${notif.id}`)
+              } catch (delErr) {
+                console.error(`[handleRejectRequest] Failed to delete notification ${notif.id}:`, delErr)
+              }
+            }
+          }
+
+          // Wait and verify deletion
+          await new Promise(resolve => setTimeout(resolve, 300))
+          const verifyNotifications = await getNotifications(user.id)
+          const stillExists = verifyNotifications.filter((n: any) => 
+            n.type === 'family_request' && n.payload?.request_id === requestId
+          )
+
+          if (stillExists.length === 0) {
+            console.log(`[handleRejectRequest] Verified: All notifications deleted after attempt ${attempt}`)
+            break
+          } else {
+            console.warn(`[handleRejectRequest] ${stillExists.length} notification(s) still exist after attempt ${attempt}`)
+          }
+
+          // Wait before next attempt
+          if (attempt < maxDeletionAttempts) {
+            await new Promise(resolve => setTimeout(resolve, 400 * attempt))
+          }
+        } catch (err) {
+          console.error(`[handleRejectRequest] Deletion attempt ${attempt} failed:`, err)
+          if (attempt < maxDeletionAttempts) {
+            await new Promise(resolve => setTimeout(resolve, 400 * attempt))
+          }
+        }
+      }
+
+      // Mark all deleted notification IDs in refs
+      if (deletedNotificationIds.length > 0) {
+        setDeletedNotificationIds((prev) => {
+          const newSet = new Set([...prev, ...deletedNotificationIds])
+          deletedNotificationIdsRef.current = newSet
+          return newSet
+        })
+      }
+
+      // Final aggressive check: If any notifications still exist, force delete them
+      const finalCheck = await getNotifications(user.id)
+      const finalMatching = finalCheck.filter((n: any) => 
+        n.type === 'family_request' && n.payload?.request_id === requestId
+      )
+
+      if (finalMatching.length > 0) {
+        console.error(`[handleRejectRequest] CRITICAL: ${finalMatching.length} notification(s) STILL EXIST. Force deleting...`)
+        for (const notif of finalMatching) {
+          try {
+            await deleteNotification(notif.id)
+            if (!deletedNotificationIds.includes(notif.id)) {
+              deletedNotificationIds.push(notif.id)
+            }
+            console.log(`[handleRejectRequest] Force deleted notification ${notif.id}`)
+          } catch (err) {
+            console.error(`[handleRejectRequest] Failed to force delete ${notif.id}:`, err)
+          }
+        }
+        // Mark as deleted locally even if database deletion fails
+        setDeletedNotificationIds((prev) => {
+          const newSet = new Set([...prev, ...finalMatching.map((n: any) => n.id)])
+          deletedNotificationIdsRef.current = newSet
+          return newSet
+        })
+        await new Promise(resolve => setTimeout(resolve, 500))
+      }
+
+      // NOW reject the family request (after notifications are FORCE DELETED)
       await rejectFamilyRequest(requestId)
+      
+      console.log(`[handleRejectRequest] Request ${requestId} rejected, notification deleted from database`)
+      
+      // Refresh pending requests list only - don't refresh notifications to avoid race conditions
+      // The real-time DELETE event and useEffect filtering will handle notification removal
       if (user?.id) {
+        // Refresh pending requests list - request should be removed (deleted)
         const requests = await getPendingFamilyRequests(user.id)
         setPendingRequests(requests || [])
+        // Note: We don't refresh notifications here to avoid re-adding deleted notifications
+        // The useEffect will filter them out based on pendingRequests
       }
     } catch (err) {
       console.error('reject request failed', err)
+      // On error, reload both lists to restore correct state
+      if (user?.id) {
+        try {
+          const requests = await getPendingFamilyRequests(user.id)
+          setPendingRequests(requests || [])
+          // Don't refresh notifications on error either - let the useEffect handle it
+        } catch (refreshErr) {
+          console.error('failed to refresh after error', refreshErr)
+        }
+      }
     } finally {
       setProcessingRequest(null)
     }
@@ -608,7 +1422,18 @@ export function Navigation() {
 
                   {/* Notifications List */}
                   <div className="max-h-80 overflow-y-auto">
-                    {notifications.map((notification) => {
+                    {notifications.filter((notification) => {
+                      // Filter out deleted notification IDs
+                      if (deletedNotificationIdsRef.current.has(notification.id)) {
+                        return false
+                      }
+                      // CRITICAL: Filter out ALL family_request notifications from the notifications list
+                      // They should only appear in the "Family Requests" section below
+                      if (notification.type === 'family_request') {
+                        return false
+                      }
+                      return true
+                    }).map((notification) => {
                       // Map backend notification to UI shape (fallbacks for missing fields)
                       const payload = (notification.payload || {}) as any
                       const uiType = notification.type
@@ -701,11 +1526,12 @@ export function Navigation() {
                     })}
 
                     {/* Family Requests Section */}
-                    {pendingRequests.length > 0 && (
+                    {(pendingRequests.length > 0 || acceptedRequests.size > 0) && (
                       <>
                         <div className="p-3 bg-gray-50 border-b border-gray-200">
                           <h4 className="font-medium text-sm text-gray-700">Family Requests</h4>
                         </div>
+                        {/* Show pending requests with Accept/Decline buttons */}
                         {pendingRequests.map((req: any) => (
                           <div
                             key={req.id}
@@ -729,9 +1555,9 @@ export function Navigation() {
                                     size="sm" 
                                     className="bg-green-600 hover:bg-green-700 text-white text-xs"
                                     onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleApproveRequest(req.id) }}
-                                    disabled={processingRequest === req.id}
+                                    disabled={processingRequest?.id === req.id}
                                   >
-                                    {processingRequest === req.id ? (
+                                    {processingRequest?.id === req.id && processingRequest?.action === 'accept' ? (
                                       <div className="flex items-center">
                                         <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin mr-1" />
                                         Accepting...
@@ -748,9 +1574,9 @@ export function Navigation() {
                                     variant="outline" 
                                     className="border-gray-300 text-gray-600 hover:bg-gray-50 text-xs"
                                     onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleRejectRequest(req.id) }}
-                                    disabled={processingRequest === req.id}
+                                    disabled={processingRequest?.id === req.id}
                                   >
-                                    {processingRequest === req.id ? (
+                                    {processingRequest?.id === req.id && processingRequest?.action === 'decline' ? (
                                       <div className="flex items-center">
                                         <div className="w-3 h-3 border-2 border-gray-600 border-t-transparent rounded-full animate-spin mr-1" />
                                         Declining...
@@ -767,10 +1593,35 @@ export function Navigation() {
                             </div>
                           </div>
                         ))}
+                        {/* Show accepted requests with "You have accepted the request" message */}
+                        {Array.from(acceptedRequests.values()).map((req: any) => (
+                          <div
+                            key={req.id}
+                            className="p-4 border-b border-gray-100 hover:bg-gray-50 transition-colors bg-green-50"
+                          >
+                            <div className="flex items-start space-x-3">
+                              <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center shrink-0 text-green-600">
+                                <Check className="w-4 h-4" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-start justify-between">
+                                  <div className="flex-1">
+                                    <p className="text-sm font-medium text-gray-900">{req.sender?.name || 'Unknown User'}</p>
+                                    <p className="text-sm text-gray-600 mt-1">Wants to add you as <span className="font-semibold text-blue-700">{req.relation}</span></p>
+                                    <p className="text-xs text-gray-400 mt-1">{req.created_at ? new Date(req.created_at).toLocaleDateString() : 'Recently'}</p>
+                                  </div>
+                                </div>
+                                <div className="mt-3">
+                                  <p className="text-sm font-medium text-green-700">You have accepted the request</p>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
                       </>
                     )}
 
-                    {notifications.length === 0 && pendingRequests.length === 0 && (
+                    {notifications.length === 0 && pendingRequests.length === 0 && acceptedRequests.size === 0 && (
                       <div className="text-center py-8">
                         <Bell className="w-12 h-12 text-gray-300 mx-auto mb-3" />
                         <p className="text-sm text-gray-500 font-medium">No notifications</p>
