@@ -1,35 +1,20 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import {
-  Heart,
-  Shield,
-  Users,
-  BookOpen,
-  MapPin,
-  CheckCircle,
-  Clock,
+import { useState, useEffect } from 'react'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Progress } from '@/components/ui/progress'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { 
+  Heart, 
+  Shield, 
+  Users, 
+  BookOpen, 
+  MapPin, 
+  CheckCircle, 
+  Clock, 
   AlertTriangle,
   Plus,
   MessageCircle,
@@ -38,9 +23,14 @@ import {
   Play,
   Award,
   Settings,
-} from "lucide-react";
-import { useLanguage } from "@/hooks/use-language";
-import { useAuth } from "@/hooks/use-auth";
+  
+} from 'lucide-react'
+import { useLanguage } from '@/hooks/use-language'
+import { useAuth } from '@/hooks/use-auth'
+import FamilyTab from '@/components/family-tab'
+import { fetchFamilyMembers } from '@/services/family'
+import { supabase } from '@/lib/supabase'
+
 import { mockSafetyModules } from "@/data/mockSafetyModules";
 import Link from "next/link";
 
@@ -66,44 +56,21 @@ interface SafetyModule {
   icon: React.ReactNode;
 }
 
-// Mock data
-const mockFamilyMembers: FamilyMember[] = [
-  {
-    id: "1",
-    name: "Mother",
-    phone: "+959123456789",
-    uniqueId: "FAM-001",
-    lastSeen: new Date(Date.now() - 30 * 60 * 1000),
-    status: "safe",
-    location: { lat: 16.8409, lng: 96.1735, address: "Yangon, Myanmar" },
-  },
-  {
-    id: "2",
-    name: "Brother",
-    phone: "+959987654321",
-    uniqueId: "FAM-002",
-    lastSeen: new Date(Date.now() - 2 * 60 * 60 * 1000),
-    status: "unknown",
-  },
-  {
-    id: "3",
-    name: "Sister",
-    phone: "+959456789123",
-    uniqueId: "FAM-003",
-    lastSeen: new Date(Date.now() - 15 * 60 * 1000),
-    status: "safe",
-    location: { lat: 16.8509, lng: 96.1835, address: "Mandalay, Myanmar" },
-  },
-];
+// Family members will be loaded from the backend; start with empty list
 
 export default function DashboardPage() {
   const { t, language } = useLanguage();
   const { user, isAuthenticated } = useAuth();
-  const [familyMembers, setFamilyMembers] =
-    useState<FamilyMember[]>(mockFamilyMembers);
+  const [familyMembers, setFamilyMembers] = useState<FamilyMember[]>([]);
   const [safetyModules, setSafetyModules] =
     useState<SafetyModule[]>(mockSafetyModules);
   const [showAddMember, setShowAddMember] = useState(false);
+  const [searchIdentifier, setSearchIdentifier] = useState('');
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [selectedFound, setSelectedFound] = useState<any | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [searchTimeout, setSearchTimeout] = useState<any>(null);
+  const [memberRelation, setMemberRelation] = useState('');
   const [newMember, setNewMember] = useState({
     name: "",
     phone: "",
@@ -113,6 +80,7 @@ export default function DashboardPage() {
 
   const handleAddFamilyMember = () => {
     if (!newMember.name || !newMember.phone) return;
+
 
     const member: FamilyMember = {
       id: Date.now().toString(),
@@ -179,9 +147,89 @@ export default function DashboardPage() {
   const completedModules = safetyModules.filter(
     (m) => m.progress === 100
   ).length;
-  const safeFamilyMembers = familyMembers.filter(
-    (m) => m.status === "safe"
-  ).length;
+
+  // Load family members for current user and subscribe to changes
+  useEffect(() => {
+    let channel: any
+    const load = async () => {
+      if (!user?.id) return
+      try {
+        const links = await fetchFamilyMembers(user.id)
+        const mapped = (links || []).map((l: any) => ({
+          id: l.member?.id ?? l.id,
+          name: l.member?.name ?? 'Unknown',
+          phone: l.member?.phone ?? '',
+          uniqueId: l.member?.id ?? l.id,
+          status: l.safety_status ?? null,
+          safety_check_started_at: l.safety_check_started_at,
+          safety_check_expires_at: l.safety_check_expires_at,
+          lastSeen: new Date()
+        }))
+        const seen = new Set<string>()
+        const deduped = mapped.filter((m: any) => {
+          const key = m.id
+          if (!key) return false
+          if (seen.has(key)) return false
+          seen.add(key)
+          return true
+        })
+        setFamilyMembers(deduped)
+      } catch (e) {
+        console.warn('failed to load family members', e)
+      }
+      try {
+        channel = supabase
+          .channel(`family_members:${user.id}`)
+          .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'family_members', filter: `user_id=eq.${user.id}` }, async () => {
+            const links = await fetchFamilyMembers(user.id)
+            const mapped = (links || []).map((l: any) => ({
+              id: l.member?.id ?? l.id,
+              name: l.member?.name ?? 'Unknown',
+              phone: l.member?.phone ?? '',
+              uniqueId: l.member?.id ?? l.id,
+              status: l.safety_status ?? null,
+              safety_check_started_at: l.safety_check_started_at,
+              safety_check_expires_at: l.safety_check_expires_at,
+              lastSeen: new Date()
+            }))
+            const seen2 = new Set<string>()
+            const deduped2 = mapped.filter((m: any) => {
+              const key = m.id
+              if (!key) return false
+              if (seen2.has(key)) return false
+              seen2.add(key)
+              return true
+            })
+            setFamilyMembers(deduped2)
+          })
+          // Intentionally skip UPDATE subscription for safety status so UI changes only when the
+          // corresponding notification arrives (keeps status + notification in sync timing)
+          .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'family_members', filter: `user_id=eq.${user.id}` }, async () => {
+            const links = await fetchFamilyMembers(user.id)
+            const mapped = (links || []).map((l: any) => ({
+              id: l.member?.id ?? l.id,
+              name: l.member?.name ?? 'Unknown',
+              phone: l.member?.phone ?? '',
+              uniqueId: l.member?.id ?? l.id,
+              status: l.safety_status ?? null,
+              safety_check_started_at: l.safety_check_started_at,
+              safety_check_expires_at: l.safety_check_expires_at,
+              lastSeen: new Date()
+            }))
+            setFamilyMembers(mapped)
+          })
+          .subscribe()
+      } catch (e) {
+        console.warn('failed to subscribe family_members', e)
+      }
+    }
+    load()
+    return () => {
+      try { (channel as any)?.unsubscribe?.() } catch {}
+    }
+  }, [user?.id])
+
+  const safeFamilyMembers = familyMembers.filter((m) => m.status === "safe").length;
 
   // if (!isAuthenticated) {
   //   return (
@@ -197,8 +245,8 @@ export default function DashboardPage() {
   // }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4">
-      <div className="max-w-[90rem] mx-auto">
+    <div className="min-h-screen bg-gray-50">
+  <div className="max-w-360 mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">
@@ -209,8 +257,8 @@ export default function DashboardPage() {
           </p>
         </div>
 
-        {/* Quick Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+    {/* Quick Stats */}
+  <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-12 md:mb-8">
           <Card>
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
@@ -282,12 +330,10 @@ export default function DashboardPage() {
               <Users className="w-4 h-4" />
               {t("dashboard.familyMembers")}
             </TabsTrigger>
-
             <TabsTrigger value="safety" className="flex items-center gap-2">
               <Shield className="w-4 h-4" />
               {t("dashboard.safetyModules")}
             </TabsTrigger>
-
             <TabsTrigger value="alerts" className="flex items-center gap-2">
               <AlertTriangle className="w-4 h-4" />
               {t("dashboard.recentAlerts")}
@@ -295,190 +341,26 @@ export default function DashboardPage() {
           </TabsList>
 
           {/* Family Locator Tab */}
-          <TabsContent value="family" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                  <div>
-                    <CardTitle className="flex items-center gap-2">
-                      <Heart className="w-5 h-5 text-red-500" />
-                      {t("family.title")}
-                    </CardTitle>
-                    <CardDescription>
-                      Track your family members' safety status
-                    </CardDescription>
-                  </div>
-
-                  <Dialog open={showAddMember} onOpenChange={setShowAddMember}>
-                    <DialogTrigger asChild>
-                      <Button className="flex items-center gap-2">
-                        <Plus className="w-4 h-4" />
-                        {t("family.addMember")}
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent>
-                      <DialogHeader>
-                        <DialogTitle>{t("family.addMember")}</DialogTitle>
-                      </DialogHeader>
-                      <div className="space-y-4">
-                        <div>
-                          <Label htmlFor="member-name">
-                            {t("family.memberName")}
-                          </Label>
-                          <Input
-                            id="member-name"
-                            value={newMember.name}
-                            onChange={(e) =>
-                              setNewMember((prev) => ({
-                                ...prev,
-                                name: e.target.value,
-                              }))
-                            }
-                            placeholder="Enter family member name"
-                          />
-                        </div>
-                        <div>
-                          <Label htmlFor="member-phone">
-                            {t("family.memberPhone")}
-                          </Label>
-                          <Input
-                            id="member-phone"
-                            value={newMember.phone}
-                            onChange={(e) =>
-                              setNewMember((prev) => ({
-                                ...prev,
-                                phone: e.target.value,
-                              }))
-                            }
-                            placeholder="Enter phone number"
-                          />
-                        </div>
-                        <div className="text-sm text-gray-600">
-                          Unique ID will be generated automatically
-                        </div>
-                        <Button
-                          onClick={handleAddFamilyMember}
-                          className="w-full"
-                        >
-                          Add Member
-                        </Button>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
-                </div>
-              </CardHeader>
-
-              <CardContent>
-                <div className="space-y-4">
-                  {familyMembers.map((member) => (
-                    <div
-                      key={member.id}
-                      className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-4 border rounded-lg"
-                    >
-                      <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                          <Users className="w-5 h-5 text-blue-600" />
-                        </div>
-                        <div>
-                          <h3 className="font-medium">{member.name}</h3>
-                          <p className="text-sm text-gray-600">
-                            {member.phone}
-                          </p>
-                          <p className="text-xs text-gray-500">
-                            ID: {member.uniqueId}
-                          </p>
-                          {member.location && (
-                            <p className="text-xs text-gray-500 flex items-center gap-1 mt-1">
-                              <MapPin className="w-3 h-3" />
-                              {member.location?.address}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        <Badge className={getStatusColor(member.status)}>
-                          {member.status === "safe" ? (
-                            <CheckCircle className="w-3 h-3 mr-1" />
-                          ) : member.status === "in_danger" ? (
-                            <AlertTriangle className="w-3 h-3 mr-1" />
-                          ) : (
-                            <Clock className="w-3 h-3 mr-1" />
-                          )}
-                          {t(`family.${member.status}`)}
-                        </Badge>
-
-                        <div className="flex gap-1">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleSendSafetyCheck(member.id)}
-                          >
-                            <MessageCircle className="w-3 h-3 mr-1" />
-                            {t("family.areYouOk")}
-                          </Button>
-
-                          {member.status !== "safe" && (
-                            <Button
-                              size="sm"
-                              onClick={() => handleMarkSafe(member.id)}
-                            >
-                              <CheckCircle className="w-3 h-3 mr-1" />
-                              {t("family.markDone")}
-                            </Button>
-                          )}
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            onClick={async () => {
-                              if (!user?.id) return;
-                              try {
-                                const res = await removeFamilyMemberById(
-                                  user.id,
-                                  member.id
-                                );
-                                if (res?.success) {
-                                  const links = await fetchFamilyMembers(
-                                    user.id
-                                  );
-                                  const mapped = (links || []).map(
-                                    (l: any) => ({
-                                      id: l.member?.id ?? l.id,
-                                      name: l.member?.name ?? "Unknown",
-                                      phone: l.member?.phone ?? "",
-                                      uniqueId: l.member?.id ?? l.id,
-                                      status: "unknown",
-                                    })
-                                  );
-                                  const seen3 = new Set<string>();
-                                  const deduped3 = mapped.filter((m) => {
-                                    const key = m.id;
-                                    if (!key) return false;
-                                    if (seen3.has(key)) return false;
-                                    seen3.add(key);
-                                    return true;
-                                  });
-                                  setFamilyMembers(deduped3);
-                                } else {
-                                  console.warn("unlink failed", res?.error);
-                                  alert("Failed to unlink member");
-                                }
-                              } catch (err) {
-                                console.error(err);
-                                alert("Failed to unlink member");
-                              }
-                            }}
-                          >
-                            Unlink
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
+          <FamilyTab
+            t={t}
+            user={user}
+            familyMembers={familyMembers}
+            setFamilyMembers={setFamilyMembers}
+            showAddMember={showAddMember}
+            setShowAddMember={setShowAddMember}
+            searchIdentifier={searchIdentifier}
+            setSearchIdentifier={setSearchIdentifier}
+            searchResults={searchResults}
+            setSearchResults={setSearchResults}
+            selectedFound={selectedFound}
+            setSelectedFound={setSelectedFound}
+            searching={searching}
+            setSearching={setSearching}
+            searchTimeout={searchTimeout}
+            setSearchTimeout={setSearchTimeout}
+            memberRelation={memberRelation}
+            setMemberRelation={setMemberRelation}
+          />
 
           {/* Safety Modules Tab */}
           <TabsContent value="safety" className="space-y-6">
@@ -592,7 +474,7 @@ export default function DashboardPage() {
           </TabsContent>
 
           {/* Recent Alerts Tab */}
-          <TabsContent value="alerts" className="space-y-6">
+          <TabsContent value="alerts" className="space-y-6 pb-8">
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">

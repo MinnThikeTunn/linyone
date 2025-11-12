@@ -1,10 +1,9 @@
 "use client";
 
+import * as React from "react";
 import { useState } from "react";
 import { mockSafetyModules } from "@/data/mockSafetyModules";
 import { Progress } from "@/components/ui/progress";
-import { mock } from "node:test";
-import { se } from "date-fns/locale";
 import {
   Dialog,
   DialogContent,
@@ -23,9 +22,13 @@ interface ModuleDetailProps {
 }
 
 export default function ModuleDetail({ params }: ModuleDetailProps) {
-  const course = mockSafetyModules.find(
-    (m) => m.id.toString() === params.moduleId
-  );
+  // `params` may be a Promise in this Next.js version; unwrap with React.use()
+  // before accessing properties.
+  // See Next.js migration guidance: use React.use(params) in client components.
+  const resolvedParams = React.use(params as any) as { moduleId: string };
+  const moduleId = resolvedParams.moduleId;
+
+  const course = mockSafetyModules.find((m) => m.id.toString() === moduleId);
 
   // const course = mockSafetyModules.find((m) => m.id === m.id);
   const [activeTab, setActiveTab] = useState("video");
@@ -39,7 +42,7 @@ export default function ModuleDetail({ params }: ModuleDetailProps) {
     (q, i) => selectedAnswers[i] === q.answer
   ).length;
 
-  console.log("params.moduleId:", params.moduleId);
+  console.log("params.moduleId:", moduleId);
   console.log(
     "mockSafetyModules IDs:",
     mockSafetyModules.map((m) => m.id)

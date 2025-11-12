@@ -1,7 +1,7 @@
 -- WARNING: This schema is for context only and is not meant to be run.
 -- Table order and constraints may not be valid for execution.
 
-CREATE TABLE public.donations (
+CREATE TABLE donations (
   id uuid NOT NULL DEFAULT uuid_generate_v4(),
   organization_id uuid,
   pin_item_id uuid,
@@ -16,24 +16,25 @@ CREATE TABLE public.family_members (
   user_id uuid NOT NULL,
   member_id uuid NOT NULL,
   relation character varying,
+  -- Persistent safety window fields
+  safety_status text CHECK (safety_status IN ('safe','danger','unknown')),
+  safety_check_started_at timestamptz,
+  safety_check_expires_at timestamptz,
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT family_members_pkey PRIMARY KEY (id),
   CONSTRAINT family_members_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id),
   CONSTRAINT family_members_member_id_fkey FOREIGN KEY (member_id) REFERENCES public.users(id)
 );
-CREATE TABLE public.family_requests (
-  id uuid NOT NULL DEFAULT uuid_generate_v4(),
-  from_user_id uuid NOT NULL,
-  to_user_id uuid NOT NULL,
-  relation character varying NOT NULL,
-  status text DEFAULT 'pending'::text CHECK (status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text])),
-  created_at timestamp with time zone DEFAULT now(),
-  updated_at timestamp with time zone DEFAULT now(),
-  CONSTRAINT family_requests_pkey PRIMARY KEY (id),
-  CONSTRAINT family_requests_from_user_id_fkey FOREIGN KEY (from_user_id) REFERENCES public.users(id),
-  CONSTRAINT family_requests_to_user_id_fkey FOREIGN KEY (to_user_id) REFERENCES public.users(id)
-);
-CREATE TABLE public.items (
+
+
+
+-- Helpful index for checking active/expired windows
+CREATE INDEX IF NOT EXISTS family_members_safety_expires_idx
+  ON family_members (safety_check_expires_at)
+  WHERE safety_check_expires_at IS NOT NULL;
+
+
+CREATE TABLE items (
   id uuid NOT NULL DEFAULT uuid_generate_v4(),
   name text NOT NULL UNIQUE,
   unit text,
