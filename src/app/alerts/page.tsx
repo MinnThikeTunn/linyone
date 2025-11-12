@@ -1,25 +1,25 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { 
   AlertTriangle, 
   Shield, 
-  Heart, 
   Navigation,
   MapPin,
   Clock,
-  Bell
+  Bell,
+  Droplets,
+  Wind
 } from 'lucide-react'
 import { useLanguage } from '@/hooks/use-language'
 import Link from 'next/link'
 
 interface AlertItem {
   id: string
-  type: 'earthquake' | 'safety' | 'family' | 'emergency'
+  type: 'earthquake' | 'flood' | 'cyclone'
   title: string
   description: string
   timestamp: Date
@@ -29,142 +29,102 @@ interface AlertItem {
   actionLabel?: string
 }
 
-// No mock data: we'll fetch from USGS and subscribe to realtime socket events
+const mockAlerts: AlertItem[] = [
+  {
+    id: '1',
+    type: 'earthquake',
+    title: 'Earthquake Alert',
+    description: 'Magnitude 4.5 detected near Yangon. Please stay alert and follow safety protocols.',
+    timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000),
+    severity: 'high',
+    location: 'Yangon, Myanmar',
+    actionUrl: '/',
+    actionLabel: 'View on Map'
+  },
+  {
+    id: '2',
+    type: 'earthquake',
+    title: 'Earthquake Warning',
+    description: 'Magnitude 3.2 detected in Mandalay region. Minor shaking expected.',
+    timestamp: new Date(Date.now() - 5 * 60 * 60 * 1000),
+    severity: 'medium',
+    location: 'Mandalay, Myanmar',
+    actionUrl: '/',
+    actionLabel: 'View on Map'
+  },
+  {
+    id: '3',
+    type: 'flood',
+    title: 'Flood Warning',
+    description: 'Heavy rainfall causing rising water levels in low-lying areas. Evacuation recommended.',
+    timestamp: new Date(Date.now() - 1 * 60 * 60 * 1000),
+    severity: 'high',
+    location: 'Sagaing Region, Myanmar',
+    actionUrl: '/',
+    actionLabel: 'View on Map'
+  },
+  {
+    id: '4',
+    type: 'flood',
+    title: 'Flood Alert',
+    description: 'River levels rising. Residents near riverbanks should prepare for potential flooding.',
+    timestamp: new Date(Date.now() - 4 * 60 * 60 * 1000),
+    severity: 'medium',
+    location: 'Ayeyarwady Region, Myanmar',
+    actionUrl: '/',
+    actionLabel: 'View on Map'
+  },
+  {
+    id: '5',
+    type: 'cyclone',
+    title: 'Cyclone Warning',
+    description: 'Tropical cyclone approaching coastal areas. Strong winds and heavy rain expected.',
+    timestamp: new Date(Date.now() - 3 * 60 * 60 * 1000),
+    severity: 'high',
+    location: 'Rakhine Coast, Myanmar',
+    actionUrl: '/',
+    actionLabel: 'View on Map'
+  },
+  {
+    id: '6',
+    type: 'cyclone',
+    title: 'Cyclone Alert',
+    description: 'Cyclone system developing in Bay of Bengal. Monitor weather updates closely.',
+    timestamp: new Date(Date.now() - 8 * 60 * 60 * 1000),
+    severity: 'medium',
+    location: 'Coastal Areas, Myanmar',
+    actionUrl: '/',
+    actionLabel: 'View on Map'
+  }
+]
 
 export default function AlertsPage() {
   const { t } = useLanguage()
-  const [alerts, setAlerts] = useState<AlertItem[]>([])
-  const socketRef = useRef<any>(null)
-
-  // Myanmar bounding box for USGS queries
-  const BOUNDS = {
-    minlatitude: 9.5,
-    maxlatitude: 28.6,
-    minlongitude: 92.2,
-    maxlongitude: 101.2,
-  }
-
-  // Map USGS feature -> AlertItem
-  const mapFeatureToAlert = (feature: any): AlertItem => {
-    const id = feature.id
-    const mag = feature.properties?.mag
-    const place = feature.properties?.place || 'Unknown location'
-    const time = feature.properties?.time ? new Date(feature.properties.time) : new Date()
-    const severity: AlertItem['severity'] = mag >= 5 ? 'high' : (mag >= 4 ? 'medium' : 'low')
-    return {
-      id,
-      type: 'earthquake',
-      title: `M ${mag} — ${place}`,
-      description: feature.properties?.title || `${mag} earthquake at ${place}`,
-      timestamp: time,
-      severity,
-      location: place,
-      actionUrl: feature.properties?.url,
-      actionLabel: 'More info'
-    }
-  }
-
-  // Fetch initial latest 10 earthquakes from USGS for Myanmar
-  useEffect(() => {
-    let mounted = true
-    const fetchInitial = async () => {
-      try {
-        const params = new URLSearchParams({
-          format: 'geojson',
-          orderby: 'time',
-          limit: '10',
-          starttime: new Date(Date.now() - 1000 * 60 * 60 * 24 * 7).toISOString(), // last 7 days
-          endtime: new Date().toISOString(),
-          minlatitude: String(BOUNDS.minlatitude),
-          maxlatitude: String(BOUNDS.maxlatitude),
-          minlongitude: String(BOUNDS.minlongitude),
-          maxlongitude: String(BOUNDS.maxlongitude),
-        })
-        const url = `https://earthquake.usgs.gov/fdsnws/event/1/query?${params.toString()}`
-        const res = await fetch(url)
-        if (!res.ok) return
-        const data = await res.json()
-        if (!mounted) return
-        const items = (data.features || []).map(mapFeatureToAlert)
-        setAlerts(items.slice(0, 10))
-      } catch (err) {
-        console.error('Failed to fetch USGS data', err)
-      }
-    }
-
-    fetchInitial()
-
-    return () => { mounted = false }
-  }, [])
-
-  // Subscribe to Ably realtime channel 'earthquakes-myanmar'
-  useEffect(() => {
-    let ablyClient: any = null
-    let channel: any = null
-    const key = process.env.NEXT_PUBLIC_ABLY_KEY
-    if (!key) {
-      console.warn('NEXT_PUBLIC_ABLY_KEY not set — realtime Ably subscription disabled')
-      return
-    }
-
-    let mounted = true
-    ;(async () => {
-      try {
-        const Ably = await import('ably')
-        // @ts-ignore
-        ablyClient = new Ably.Realtime({ key })
-        channel = ablyClient.channels.get('earthquakes-myanmar')
-
-        channel.subscribe((msg: any) => {
-          if (!mounted) return
-          const payload = msg.data
-          try {
-            const feat = {
-              id: payload.id,
-              properties: {
-                mag: payload.magnitude ?? payload.mag,
-                title: payload.title,
-                place: payload.place,
-                time: payload.time,
-                url: payload.url
-              },
-              geometry: { coordinates: payload.coordinates }
-            }
-            const alert = mapFeatureToAlert(feat)
-            setAlerts(prev => {
-              if (prev.find(a => a.id === alert.id)) return prev
-              return [alert, ...prev].slice(0, 10)
-            })
-          } catch (err) {
-            console.error('Error handling Ably earthquake message', err)
-          }
-        })
-      } catch (err) {
-        console.error('Failed to initialize Ably realtime client', err)
-      }
-    })()
-
-    return () => {
-      mounted = false
-      try {
-        if (channel) channel.unsubscribe()
-        if (ablyClient) ablyClient.close()
-      } catch (_) {}
-    }
-  }, [])
+  const [alerts] = useState<AlertItem[]>(mockAlerts)
 
   const getAlertIcon = (type: string) => {
     switch (type) {
       case 'earthquake':
-        return <AlertTriangle className="h-4 w-4" />
-      case 'safety':
-        return <Shield className="h-4 w-4" />
-      case 'family':
-        return <Heart className="h-4 w-4" />
-      case 'emergency':
-        return <Bell className="h-4 w-4" />
+        return <AlertTriangle className="h-5 w-5 text-orange-500" />
+      case 'flood':
+        return <Droplets className="h-5 w-5 text-blue-500" />
+      case 'cyclone':
+        return <Wind className="h-5 w-5 text-purple-500" />
       default:
-        return <AlertTriangle className="h-4 w-4" />
+        return <AlertTriangle className="h-5 w-5" />
+    }
+  }
+
+  const getDisasterTypeColor = (type: string) => {
+    switch (type) {
+      case 'earthquake':
+        return 'border-orange-500 bg-orange-50'
+      case 'flood':
+        return 'border-blue-500 bg-blue-50'
+      case 'cyclone':
+        return 'border-purple-500 bg-purple-50'
+      default:
+        return 'border-gray-500 bg-gray-50'
     }
   }
 
@@ -203,14 +163,14 @@ export default function AlertsPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 p-4">
-      <div className="max-w-[90rem] mx-auto">
+      <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">
             Recent Alerts
           </h1>
           <p className="text-gray-600">
-            Stay informed about earthquake alerts, safety updates, and emergency information
+            Stay informed about earthquake, flood, and cyclone alerts and emergency information
           </p>
         </div>
 
@@ -253,74 +213,185 @@ export default function AlertsPage() {
           </Card>
         </div>
 
-        {/* Alerts List */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Bell className="w-5 h-5 text-blue-500" />
-              All Alerts
-            </CardTitle>
-            <CardDescription>
-              Latest earthquake alerts and safety notifications
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {alerts.map((alert) => (
-                <Alert
-                  key={alert.id}
-                  className={`border-l-4 ${getSeverityColor(alert.severity).split(' ')[0]} ${getSeverityColor(alert.severity).split(' ')[1]}`}
-                >
-                  <div className="flex items-start gap-3">
-                    <div className="mt-1">
-                      {getAlertIcon(alert.type)}
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <strong className="text-base">{alert.title}</strong>
-                            <Badge className={getSeverityColor(alert.severity)}>
-                              {alert.severity}
-                            </Badge>
-                          </div>
-                          <p className="text-sm text-gray-700 mb-2">{alert.description}</p>
-                          <div className="flex items-center gap-4 text-xs text-gray-500">
-                            <div className="flex items-center gap-1">
-                              <Clock className="w-3 h-3" />
-                              <span>{formatTimeAgo(alert.timestamp)}</span>
-                            </div>
-                            {alert.location && (
-                              <div className="flex items-center gap-1">
-                                <MapPin className="w-3 h-3" />
-                                <span>{alert.location}</span>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                        {alert.actionUrl && alert.actionLabel && (
-                          <Button size="sm" variant="outline" asChild>
-                            <Link href={alert.actionUrl}>
-                              <Navigation className="w-3 h-3 mr-1" />
-                              {alert.actionLabel}
-                            </Link>
-                          </Button>
-                        )}
-                      </div>
-                    </div>
+        {/* Three Column Alerts Layout */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Earthquake Column */}
+          <div className="space-y-4">
+            <Card className="border-t-4 border-t-orange-500">
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <AlertTriangle className="w-5 h-5 text-orange-500" />
+                  Earthquake
+                </CardTitle>
+                <CardDescription>
+                  {alerts.filter(a => a.type === 'earthquake').length} active alerts
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {alerts.filter(a => a.type === 'earthquake').length === 0 ? (
+                  <div className="text-center py-8 text-gray-500 text-sm">
+                    No earthquake alerts
                   </div>
-                </Alert>
-              ))}
-            </div>
+                ) : (
+                  alerts.filter(a => a.type === 'earthquake').map((alert) => (
+                    <Card key={alert.id} className="border-l-4 border-l-orange-500">
+                      <CardContent className="p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-2">
+                              <h4 className="font-semibold text-sm">{alert.title}</h4>
+                              <Badge className={`${getSeverityColor(alert.severity)} text-xs`}>
+                                {alert.severity}
+                              </Badge>
+                            </div>
+                            <p className="text-xs text-gray-600 mb-2 line-clamp-2">{alert.description}</p>
+                            <div className="flex items-center gap-3 text-xs text-gray-500 flex-wrap">
+                              <div className="flex items-center gap-1">
+                                <Clock className="w-3 h-3" />
+                                <span>{formatTimeAgo(alert.timestamp)}</span>
+                              </div>
+                              {alert.location && (
+                                <div className="flex items-center gap-1">
+                                  <MapPin className="w-3 h-3" />
+                                  <span className="truncate max-w-[120px]">{alert.location}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          {alert.actionUrl && alert.actionLabel && (
+                            <Button size="sm" variant="outline" className="shrink-0" asChild>
+                              <Link href={alert.actionUrl}>
+                                <Navigation className="w-3 h-3" />
+                              </Link>
+                            </Button>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+          </div>
 
-            {alerts.length === 0 && (
-              <div className="text-center py-12">
-                <Bell className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-500">No alerts at this time</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+          {/* Flood Column */}
+          <div className="space-y-4">
+            <Card className="border-t-4 border-t-blue-500">
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <Droplets className="w-5 h-5 text-blue-500" />
+                  Flood
+                </CardTitle>
+                <CardDescription>
+                  {alerts.filter(a => a.type === 'flood').length} active alerts
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {alerts.filter(a => a.type === 'flood').length === 0 ? (
+                  <div className="text-center py-8 text-gray-500 text-sm">
+                    No flood alerts
+                  </div>
+                ) : (
+                  alerts.filter(a => a.type === 'flood').map((alert) => (
+                    <Card key={alert.id} className="border-l-4 border-l-blue-500">
+                      <CardContent className="p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-2">
+                              <h4 className="font-semibold text-sm">{alert.title}</h4>
+                              <Badge className={`${getSeverityColor(alert.severity)} text-xs`}>
+                                {alert.severity}
+                              </Badge>
+                            </div>
+                            <p className="text-xs text-gray-600 mb-2 line-clamp-2">{alert.description}</p>
+                            <div className="flex items-center gap-3 text-xs text-gray-500 flex-wrap">
+                              <div className="flex items-center gap-1">
+                                <Clock className="w-3 h-3" />
+                                <span>{formatTimeAgo(alert.timestamp)}</span>
+                              </div>
+                              {alert.location && (
+                                <div className="flex items-center gap-1">
+                                  <MapPin className="w-3 h-3" />
+                                  <span className="truncate max-w-[120px]">{alert.location}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          {alert.actionUrl && alert.actionLabel && (
+                            <Button size="sm" variant="outline" className="shrink-0" asChild>
+                              <Link href={alert.actionUrl}>
+                                <Navigation className="w-3 h-3" />
+                              </Link>
+                            </Button>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Cyclone Column */}
+          <div className="space-y-4">
+            <Card className="border-t-4 border-t-purple-500">
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <Wind className="w-5 h-5 text-purple-500" />
+                  Cyclone
+                </CardTitle>
+                <CardDescription>
+                  {alerts.filter(a => a.type === 'cyclone').length} active alerts
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {alerts.filter(a => a.type === 'cyclone').length === 0 ? (
+                  <div className="text-center py-8 text-gray-500 text-sm">
+                    No cyclone alerts
+                  </div>
+                ) : (
+                  alerts.filter(a => a.type === 'cyclone').map((alert) => (
+                    <Card key={alert.id} className="border-l-4 border-l-purple-500">
+                      <CardContent className="p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-2">
+                              <h4 className="font-semibold text-sm">{alert.title}</h4>
+                              <Badge className={`${getSeverityColor(alert.severity)} text-xs`}>
+                                {alert.severity}
+                              </Badge>
+                            </div>
+                            <p className="text-xs text-gray-600 mb-2 line-clamp-2">{alert.description}</p>
+                            <div className="flex items-center gap-3 text-xs text-gray-500 flex-wrap">
+                              <div className="flex items-center gap-1">
+                                <Clock className="w-3 h-3" />
+                                <span>{formatTimeAgo(alert.timestamp)}</span>
+                              </div>
+                              {alert.location && (
+                                <div className="flex items-center gap-1">
+                                  <MapPin className="w-3 h-3" />
+                                  <span className="truncate max-w-[120px]">{alert.location}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          {alert.actionUrl && alert.actionLabel && (
+                            <Button size="sm" variant="outline" className="shrink-0" asChild>
+                              <Link href={alert.actionUrl}>
+                                <Navigation className="w-3 h-3" />
+                              </Link>
+                            </Button>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </div>
       </div>
     </div>
   )
