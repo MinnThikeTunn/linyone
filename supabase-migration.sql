@@ -21,6 +21,9 @@ CREATE TABLE public.family_members (
   safety_check_started_at timestamptz,
   safety_check_expires_at timestamptz,
   created_at timestamp with time zone DEFAULT now(),
+  safety_status text CHECK (safety_status = ANY (ARRAY['safe'::text, 'danger'::text, 'unknown'::text])),
+  safety_check_started_at timestamp with time zone,
+  safety_check_expires_at timestamp with time zone,
   CONSTRAINT family_members_pkey PRIMARY KEY (id),
   CONSTRAINT family_members_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id),
   CONSTRAINT family_members_member_id_fkey FOREIGN KEY (member_id) REFERENCES public.users(id)
@@ -53,6 +56,24 @@ CREATE TABLE public.messages (
   CONSTRAINT messages_sender_id_fkey FOREIGN KEY (sender_id) REFERENCES public.users(id),
   CONSTRAINT messages_receiver_id_fkey FOREIGN KEY (receiver_id) REFERENCES public.users(id)
 );
+CREATE TABLE public.module_qna (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  module_id uuid NOT NULL,
+  question text NOT NULL,
+  answer text NOT NULL,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT module_qna_pkey PRIMARY KEY (id),
+  CONSTRAINT module_qna_module_id_fkey FOREIGN KEY (module_id) REFERENCES public.safety_modules(id)
+);
+CREATE TABLE public.module_quiz_questions (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  module_id uuid NOT NULL,
+  question text NOT NULL,
+  answer text NOT NULL,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT module_quiz_questions_pkey PRIMARY KEY (id),
+  CONSTRAINT module_quiz_questions_module_id_fkey FOREIGN KEY (module_id) REFERENCES public.safety_modules(id)
+);
 CREATE TABLE public.notifications (
   id uuid NOT NULL DEFAULT uuid_generate_v4(),
   user_id uuid NOT NULL,
@@ -75,6 +96,18 @@ CREATE TABLE public.org-member (
   CONSTRAINT org-member_pkey PRIMARY KEY (id),
   CONSTRAINT trackers_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES public.organizations(id),
   CONSTRAINT trackers_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.organization_requests (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  user_id uuid NOT NULL,
+  organization_id uuid NOT NULL,
+  message text,
+  status text NOT NULL DEFAULT '''''''pending''''::text''::text'::text CHECK (status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text])),
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT organization_requests_pkey PRIMARY KEY (id),
+  CONSTRAINT organization_requests_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id),
+  CONSTRAINT organization_requests_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES public.organizations(id)
 );
 CREATE TABLE public.organizations (
   id uuid NOT NULL DEFAULT uuid_generate_v4(),
@@ -116,6 +149,36 @@ CREATE TABLE public.pins (
   CONSTRAINT pins_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id),
   CONSTRAINT pins_confirmed_by_fkey FOREIGN KEY (confirmed_by) REFERENCES public.org-member(id)
 );
+CREATE TABLE public.quiz_options (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  question_id uuid NOT NULL,
+  option_text text NOT NULL,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT quiz_options_pkey PRIMARY KEY (id),
+  CONSTRAINT quiz_options_question_id_fkey FOREIGN KEY (question_id) REFERENCES public.module_quiz_questions(id)
+);
+CREATE TABLE public.safety_modules (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  title text NOT NULL,
+  description text,
+  category text,
+  icon text,
+  video_url text,
+  point integer DEFAULT 0,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT safety_modules_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.user_modules (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  user_id uuid NOT NULL,
+  module_id uuid NOT NULL,
+  started_at timestamp with time zone DEFAULT now(),
+  completed_at timestamp with time zone,
+  score integer DEFAULT 0,
+  CONSTRAINT user_modules_pkey PRIMARY KEY (id),
+  CONSTRAINT user_modules_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id),
+  CONSTRAINT user_modules_module_id_fkey FOREIGN KEY (module_id) REFERENCES public.safety_modules(id)
+);
 CREATE TABLE public.users (
   id uuid NOT NULL DEFAULT uuid_generate_v4(),
   name text NOT NULL,
@@ -124,5 +187,6 @@ CREATE TABLE public.users (
   password text,
   created_at timestamp with time zone DEFAULT now(),
   is_admin boolean DEFAULT false,
+  total_points integer DEFAULT 0,
   CONSTRAINT users_pkey PRIMARY KEY (id)
 );

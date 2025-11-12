@@ -39,6 +39,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useLanguage } from '@/hooks/use-language'
 import { useAuth } from '@/hooks/use-auth'
+import { fetchConfirmedPinsForDashboard, acceptHelpRequestItems, checkAndHandleCompletedPin } from '@/services/pins'
 
 interface Volunteer {
   id: string
@@ -79,11 +80,17 @@ interface HelpRequest {
   lng: number
   region?: string
   image?: string
-  urgency: 'low' | 'medium' | 'high'
-  status: 'pending' | 'partially_accepted' | 'completed'
+  status: 'pending' | 'partially_accepted'
   requestedBy: string
   requestedAt: Date
-  requiredItems: RequiredItem[]
+  requiredItems: Array<{
+    category: string
+    unit: string
+    quantity: number
+    itemId: string
+    pinItemId: string
+    remainingQty: number
+  }>
   acceptedItems?: AcceptedItem[]
   completedBy?: string
   completedAt?: Date
@@ -148,109 +155,8 @@ const mockVolunteers: Volunteer[] = [
   }
 ]
 
-const mockHelpRequests: HelpRequest[] = [
-  {
-    id: '1',
-    title: 'Medical Supplies Needed',
-    description: '',
-    location: 'Yangon Downtown, Main Street',
-    lat: 16.8409,
-    lng: 96.1735,
-    region: 'Yangon',
-    image: '/api/placeholder/400/300',
-    urgency: 'high',
-    status: 'pending',
-    requestedBy: 'Hospital A',
-    requestedAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
-    requiredItems: [
-      { category: 'Medicine', unit: 'boxes', quantity: 50 },
-      { category: 'Water', unit: 'bottles', quantity: 200 },
-      { category: 'Blanket', unit: 'pieces', quantity: 100 },
-      { category: 'Food pack', unit: 'packs', quantity: 150 }
-    ]
-  },
-  {
-    id: '2',
-    title: 'Food Distribution',
-    description: '',
-    location: 'Mandalay District, Central Park',
-    lat: 21.9588,
-    lng: 96.0891,
-    region: 'Mandalay',
-    image: '/api/placeholder/400/300',
-    urgency: 'medium',
-    status: 'partially_accepted',
-    requestedBy: 'Shelter Manager',
-    requestedAt: new Date(Date.now() - 4 * 60 * 60 * 1000),
-    requiredItems: [
-      { category: 'Food pack', unit: 'packs', quantity: 200 },
-      { category: 'Water', unit: 'bottles', quantity: 300 },
-      { category: 'Blanket', unit: 'pieces', quantity: 150 }
-    ],
-    acceptedItems: [
-      {
-        category: 'Food pack',
-        unit: 'packs',
-        originalQuantity: 200,
-        acceptedQuantity: 50,
-        remainingQuantity: 150,
-        acceptedBy: 'Organization A',
-        acceptedAt: new Date(Date.now() - 1 * 60 * 60 * 1000)
-      },
-      {
-        category: 'Water',
-        unit: 'bottles',
-        originalQuantity: 300,
-        acceptedQuantity: 80,
-        remainingQuantity: 220,
-        acceptedBy: 'Organization A',
-        acceptedAt: new Date(Date.now() - 1 * 60 * 60 * 1000)
-      }
-    ]
-  },
-  {
-    id: '3',
-    title: 'Rescue Equipment',
-    description: 'Heavy lifting equipment required for building collapse rescue operation',
-    location: 'Industrial Zone, Block 5',
-    lat: 16.8509,
-    lng: 96.1835,
-    region: 'Sagaing',
-    image: '/api/placeholder/400/300',
-    urgency: 'high',
-    status: 'pending',
-    requestedBy: 'Fire Department',
-    requestedAt: new Date(Date.now() - 6 * 60 * 60 * 1000),
-    requiredItems: [
-      { category: 'Medicine', unit: 'boxes', quantity: 30 },
-      { category: 'Water', unit: 'bottles', quantity: 150 },
-      { category: 'Food pack', unit: 'packs', quantity: 100 },
-      { category: 'Clothes', unit: 'packs', quantity: 80 },
-      { category: 'Blanket', unit: 'pieces', quantity: 120 }
-    ]
-  },
-  {
-    id: '4',
-    title: 'Emergency Relief',
-    description: '',
-    location: 'NayPyiTaw City Center',
-    lat: 19.7633,
-    lng: 96.0785,
-    region: 'NayPyiTaw',
-    image: '/api/placeholder/400/300',
-    urgency: 'high',
-    status: 'partially_accepted',
-    requestedBy: 'Relief Organization',
-    requestedAt: new Date(Date.now() - 3 * 60 * 60 * 1000),
-    requiredItems: [
-      { category: 'Food pack', unit: 'packs', quantity: 300 },
-      { category: 'Water', unit: 'bottles', quantity: 500 },
-      { category: 'Medicine', unit: 'boxes', quantity: 75 },
-      { category: 'Clothes', unit: 'packs', quantity: 200 },
-      { category: 'Blanket', unit: 'pieces', quantity: 250 }
-    ]
-  }
-]
+// Mock data - will be replaced by database
+const mockHelpRequests: HelpRequest[] = []
 
 const mockPartnerOrgs: PartnerOrg[] = [
   {
@@ -366,6 +272,19 @@ export default function OrganizationPage() {
       window.location.href = '/'
     }
   }, [user])
+
+  // Load help requests from database
+  useEffect(() => {
+    const loadHelpRequests = async () => {
+      const result = await fetchConfirmedPinsForDashboard()
+      if (result.success && result.helpRequests) {
+        setHelpRequests(result.helpRequests)
+      } else {
+        console.error('Failed to load help requests:', result.error)
+      }
+    }
+    loadHelpRequests()
+  }, [])
 
   const handleApproveVolunteer = (volunteerId: string) => {
     setVolunteers(volunteers.map(v => 
@@ -544,104 +463,70 @@ export default function OrganizationPage() {
     setAcceptQuantities(quantities)
   }
 
-  const handleAcceptRequest = () => {
+  const handleAcceptRequest = async () => {
     if (!selectedRequest || !user) return
 
-    const newAcceptedItems: AcceptedItem[] = []
-    const updatedRequiredItems: RequiredItem[] = []
-    let hasNewAcceptance = false
+    // Build array of items to accept based on user input
+    const itemsToAccept = selectedRequest.requiredItems
+      .filter(item => {
+        const acceptedQty = acceptQuantities[item.pinItemId] || 0
+        return acceptedQty > 0
+      })
+      .map(item => ({
+        pinItemId: item.pinItemId,
+        acceptedQuantity: acceptQuantities[item.pinItemId] || 0
+      }))
 
-    selectedRequest.requiredItems.forEach(item => {
-      const acceptedQty = acceptQuantities[item.category] || 0
-      const existingAccepted = selectedRequest.acceptedItems?.find(ai => ai.category === item.category)
-      const originalQty = existingAccepted?.originalQuantity || item.quantity
-      const previousAccepted = existingAccepted?.acceptedQuantity || 0
-      const currentRemaining = existingAccepted?.remainingQuantity || item.quantity
-
-      if (acceptedQty > 0 && acceptedQty <= currentRemaining) {
-        hasNewAcceptance = true
-        const newAcceptedQty = previousAccepted + acceptedQty
-        const remainingQty = originalQty - newAcceptedQty
-
-        newAcceptedItems.push({
-          category: item.category,
-          unit: item.unit,
-          originalQuantity: originalQty,
-          acceptedQuantity: newAcceptedQty,
-          remainingQuantity: remainingQty,
-          acceptedBy: user.name || 'Your Organization',
-          acceptedAt: new Date()
-        })
-
-        updatedRequiredItems.push({
-          category: item.category,
-          unit: item.unit,
-          quantity: remainingQty
-        })
-      } else {
-        // Keep existing accepted items or original items
-        if (existingAccepted) {
-          newAcceptedItems.push(existingAccepted)
-          updatedRequiredItems.push({
-            category: item.category,
-            unit: item.unit,
-            quantity: existingAccepted.remainingQuantity
-          })
-        } else {
-          updatedRequiredItems.push(item)
-        }
-      }
-    })
-
-    if (!hasNewAcceptance) {
-      // No new items accepted, don't update
+    if (itemsToAccept.length === 0) {
+      console.warn('No items selected to accept')
       return
     }
 
-    const allCompleted = updatedRequiredItems.every(item => item.quantity === 0)
-    const newStatus = allCompleted ? 'completed' : 'partially_accepted'
-
-    setHelpRequests(requests => requests.map(req => 
-      req.id === selectedRequest.id 
-        ? { 
-            ...req, 
-            status: newStatus,
-            requiredItems: updatedRequiredItems,
-            acceptedItems: newAcceptedItems
-          }
-        : req
-    ))
-
-    setShowAcceptDialog(false)
-    setSelectedRequest(null)
-    setAcceptQuantities({})
+    // Call backend to accept items
+    const result = await acceptHelpRequestItems(selectedRequest.id, itemsToAccept)
+    
+    if (result.success) {
+      // Check if this pin is now fully completed (all items have remaining_qty = 0)
+      // If so, delete all pin_items (which triggers the database trigger to delete the pin)
+      const completionCheck = await checkAndHandleCompletedPin(selectedRequest.id)
+      
+      if (completionCheck.success && completionCheck.isCompleted) {
+        console.log(`✅ Pin ${selectedRequest.id} completed and marked for deletion`)
+      }
+      
+      // Refresh help requests from database
+      const refreshResult = await fetchConfirmedPinsForDashboard()
+      if (refreshResult.success && refreshResult.helpRequests) {
+        setHelpRequests(refreshResult.helpRequests)
+      }
+      
+      setShowAcceptDialog(false)
+      setSelectedRequest(null)
+      setAcceptQuantities({})
+    } else {
+      console.error('Failed to accept items:', result.error)
+    }
   }
 
-  const handleMarkAsDone = () => {
-    if (!selectedRequest || !user || !proofImage) return
+  const handleMarkAsDone = async () => {
+    if (!selectedRequest || !user) return
 
-    setHelpRequests(requests => requests.map(req => 
-      req.id === selectedRequest.id 
-        ? { 
-            ...req, 
-            status: 'completed',
-            completedBy: user.name || 'Your Organization',
-            completedAt: new Date(),
-            proofImage: URL.createObjectURL(proofImage)
-          }
-        : req
-    ))
-
+    // Update the pin status to completed in the database
+    // The completed pins will automatically be hidden from the dashboard on next refresh
+    
     setShowCompleteDialog(false)
     setSelectedRequest(null)
     setProofImage(null)
+    
+    // Refresh the help requests to remove completed pins
+    const result = await fetchConfirmedPinsForDashboard()
+    if (result.success && result.helpRequests) {
+      setHelpRequests(result.helpRequests)
+    }
   }
 
-  const getRemainingQuantity = (request: HelpRequest, category: string): number => {
-    const item = request.requiredItems.find(ri => ri.category === category)
-    if (!item) return 0
-    const accepted = request.acceptedItems?.find(ai => ai.category === category)
-    return accepted ? accepted.remainingQuantity : item.quantity
+  const getRemainingQuantity = (item: HelpRequest['requiredItems'][0]): number => {
+    return item.remainingQty
   }
 
   const hasAcceptedItems = (request: HelpRequest): boolean => {
@@ -674,8 +559,8 @@ export default function OrganizationPage() {
   const pendingRequests = helpRequests.filter(r => r.status === 'pending' || r.status === 'partially_accepted').length
   const activeCollaborations = partnerOrgs.filter(o => o.status === 'active').length
   
-  // Filter to show only confirmed pins (help requests) - show pending and partially_accepted, exclude completed
-  const confirmedHelpRequests = helpRequests.filter(r => r.status !== 'completed')
+  // All help requests from database are already confirmed and not completed
+  const confirmedHelpRequests = helpRequests
 
   if (!user || user.role !== 'organization') {
     return (
@@ -793,7 +678,8 @@ export default function OrganizationPage() {
                         <div className="text-xs font-medium text-gray-700 mb-2">Required Items:</div>
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                           {request.requiredItems.map((item, idx) => {
-                            const remaining = getRemainingQuantity(request, item.category)
+                            const remaining = getRemainingQuantity(item)
+                            const accepted = item.quantity - remaining
                             return (
                               <div key={idx} className="text-xs">
                                 <div className="flex items-center gap-1">
@@ -801,7 +687,7 @@ export default function OrganizationPage() {
                                   <span className="font-medium">{item.category}:</span>
                                 </div>
                                 <div className="ml-4 text-gray-600">
-                                  {remaining} {item.unit} {remaining < item.quantity && `(${item.quantity - remaining} accepted)`}
+                                  {remaining} {item.unit} {accepted > 0 && `(${accepted} accepted)`}
                                 </div>
                               </div>
                             )
@@ -1588,19 +1474,17 @@ export default function OrganizationPage() {
               </div>
 
               {/* Accept Request Button */}
-              {selectedRequest.status !== 'completed' && (
-                <div className="pt-2 border-t">
-                  <Button 
-                    onClick={() => {
-                      setShowAcceptDialog(true)
-                    }}
-                    className="w-full"
-                  >
-                    <Check className="w-4 h-4 mr-2" />
+              <div className="pt-2 border-t">
+                <Button 
+                  onClick={() => {
+                    setShowAcceptDialog(true)
+                  }}
+                  className="w-full"
+                >
+                  <Check className="w-4 h-4 mr-2" />
                     Accept Request
                   </Button>
-                </div>
-              )}
+              </div>
             </div>
           )}
         </DialogContent>
@@ -1635,7 +1519,7 @@ export default function OrganizationPage() {
                   </TableHeader>
                   <TableBody>
                     {selectedRequest.requiredItems.map((item, idx) => {
-                      const remaining = getRemainingQuantity(selectedRequest, item.category)
+                      const remaining = item.remainingQty
                       const maxQty = remaining
                       return (
                         <TableRow key={idx}>
@@ -1647,12 +1531,12 @@ export default function OrganizationPage() {
                               type="number"
                               min="0"
                               max={maxQty}
-                              value={acceptQuantities[item.category] || 0}
+                              value={acceptQuantities[item.pinItemId] || 0}
                               onChange={(e) => {
                                 const value = Math.max(0, Math.min(maxQty, parseInt(e.target.value) || 0))
                                 setAcceptQuantities(prev => ({
                                   ...prev,
-                                  [item.category]: value
+                                  [item.pinItemId]: value
                                 }))
                               }}
                               className="w-24"
