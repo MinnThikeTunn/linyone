@@ -42,10 +42,10 @@ import {
 } from "lucide-react";
 import { useLanguage } from "@/hooks/use-language";
 import { useAuth } from "@/hooks/use-auth";
-import { 
-  createPin, 
-  fetchPins, 
-  updatePinStatus, 
+import {
+  createPin,
+  fetchPins,
+  updatePinStatus,
   isUserActiveTracker,
   getUserOrgMember,
   fetchItems,
@@ -485,7 +485,7 @@ export default function HomePage() {
       if (result.success && result.pin) {
         // Add new pin to local state
         setPins([result.pin, ...pins]);
-        
+
         // Reset form
         setPinPhone("");
         setPinDescription("");
@@ -611,7 +611,12 @@ export default function HomePage() {
         return;
       }
 
-      const result = await updatePinStatus(pinId, "completed", undefined, user.id);
+      const result = await updatePinStatus(
+        pinId,
+        "completed",
+        undefined,
+        user.id
+      );
 
       if (result.success) {
         setPins(
@@ -934,8 +939,8 @@ export default function HomePage() {
                       )}
                     
                       <div className="flex gap-2">
-                        <Button 
-                          onClick={handleCreatePin} 
+                        <Button
+                          onClick={handleCreatePin}
                           className="flex-1"
                           disabled={isCreatingPin}
                         >
@@ -1245,26 +1250,25 @@ export default function HomePage() {
               
               {/* Action buttons */}
               <div className="flex gap-2">
-                {isUserTracker &&
-                  selectedPin.status === "pending" && (
-                    <>
-                      <Button
-                        onClick={() => handleConfirmPin(selectedPin.id)}
-                        className="flex-1"
-                      >
-                        <Check className="w-4 h-4 mr-2" />
-                        Confirm
-                      </Button>
-                      <Button
-                        variant="outline"
-                        onClick={() => handleDenyPin(selectedPin.id)}
-                        className="flex-1"
-                      >
-                        <X className="w-4 h-4 mr-2" />
-                        Deny
-                      </Button>
-                    </>
-                  )}
+                {isUserTracker && selectedPin.status === "pending" && (
+                  <>
+                    <Button
+                      onClick={() => handleConfirmPin(selectedPin.id)}
+                      className="flex-1"
+                    >
+                      <Check className="w-4 h-4 mr-2" />
+                      Confirm
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => handleDenyPin(selectedPin.id)}
+                      className="flex-1"
+                    >
+                      <X className="w-4 h-4 mr-2" />
+                      Deny
+                    </Button>
+                  </>
+                )}
 
                 {userRole === "supply_volunteer" &&
                   selectedPin.status === "confirmed" &&
