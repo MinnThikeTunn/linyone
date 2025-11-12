@@ -5,6 +5,8 @@ import { Toaster } from "@/components/ui/toaster";
 import { LanguageProvider } from "@/hooks/use-language";
 import { AuthProvider } from "@/hooks/use-auth";
 import { Navigation } from "@/components/navigation";
+import { AlertToToastBridge } from "@/components/alert-to-toast-bridge";
+import { NotificationToasts } from "@/components/notification-toasts";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -57,6 +59,8 @@ export default function RootLayout({
               </main>
             </div>
             <Toaster />
+            <AlertToToastBridge />
+            <NotificationToasts />
           </AuthProvider>
         </LanguageProvider>
       </body>

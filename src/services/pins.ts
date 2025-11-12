@@ -228,6 +228,117 @@ export async function createPin(
       assignedTo: pin.assignedTo,
     }
 
+    // --- Automated tracker alert fan-out ------------------------------------
+    // Requirement: When any pin is reported, alert all organization members
+    // designated as trackers. Current implementation treats ALL active org-member
+    // entries (status='active') as trackers (same logic as isUserActiveTracker).
+    // If a more specific designation is later required (e.g. type='tracker'),
+    // filter can be refined without changing call sites.
+    // This runs opportunistically; failures are logged but don't block pin creation.
+    try {
+      // Fetch active tracker members (user_ids)
+      // Prefer explicit type='tracker' when available; fall back to all active
+      let { data: trackerRows, error: trackersError } = await supabase
+        .from('org-member')
+        .select('user_id')
+        .eq('status', 'active')
+        .eq('type', 'tracker')
+
+      if (trackersError) {
+        console.warn('[pin_notifications] Failed to load trackers:', trackersError.message)
+      } else if (trackerRows && trackerRows.length > 0) {
+        const reporterUserId = createdPin.user_id
+        const targetUserIds = trackerRows
+          .map((r: any) => r.user_id)
+          .filter((uid: string | null) => !!uid && uid !== reporterUserId)
+
+        if (targetUserIds.length > 0) {
+          const payload = {
+            pin_id: createdPin.id,
+            type: createdPin.type,
+            status: createdPin.status,
+            lat: createdPin.lat,
+            lng: createdPin.lng,
+            description: createdPin.description,
+            phone: createdPin.phone,
+          }
+
+          const title = createdPin.type === 'damaged' ? 'Damaged Location Reported' : 'Safe Zone Reported'
+          const bodyBase = createdPin.description || ''
+          const body = bodyBase.length > 140 ? bodyBase.slice(0, 137) + '…' : bodyBase
+
+          // Prepare bulk notifications insert
+          const notifications = targetUserIds.map((uid: string) => ({
+            user_id: uid,
+            type: 'pin_reported',
+            title,
+            body,
+            payload,
+          }))
+
+          const { error: notifError } = await supabase
+            .from('notifications')
+            .insert(notifications)
+
+          if (notifError) {
+            console.error('[pin_notifications] Failed to insert pin_reported notifications:', notifError)
+          } else {
+            console.log(`[pin_notifications] Fan-out pin_reported to ${notifications.length} tracker(s)`) }
+        }
+      } else {
+        // Fallback: no explicit tracker type found; notify all active org-members
+        const { data: activeMembers, error: fallbackError } = await supabase
+          .from('org-member')
+          .select('user_id')
+          .eq('status', 'active')
+
+        if (fallbackError) {
+          console.warn('[pin_notifications] Fallback load active members failed:', fallbackError.message)
+        } else if (activeMembers && activeMembers.length > 0) {
+          const reporterUserId = createdPin.user_id
+          const targetUserIds = activeMembers
+            .map((r: any) => r.user_id)
+            .filter((uid: string | null) => !!uid && uid !== reporterUserId)
+
+          if (targetUserIds.length > 0) {
+            const payload = {
+              pin_id: createdPin.id,
+              type: createdPin.type,
+              status: createdPin.status,
+              lat: createdPin.lat,
+              lng: createdPin.lng,
+              description: createdPin.description,
+              phone: createdPin.phone,
+            }
+
+            const title = createdPin.type === 'damaged' ? 'Damaged Location Reported' : 'Safe Zone Reported'
+            const bodyBase = createdPin.description || ''
+            const body = bodyBase.length > 140 ? bodyBase.slice(0, 137) + '…' : bodyBase
+
+            const notifications = targetUserIds.map((uid: string) => ({
+              user_id: uid,
+              type: 'pin_reported',
+              title,
+              body,
+              payload,
+            }))
+
+            const { error: notifError } = await supabase
+              .from('notifications')
+              .insert(notifications)
+
+            if (notifError) {
+              console.error('[pin_notifications] Fallback insert failed:', notifError)
+            } else {
+              console.log(`[pin_notifications] Fallback fan-out to ${notifications.length} active member(s)`) }
+          }
+        }
+      }
+    } catch (fanOutErr) {
+      console.error('[pin_notifications] Fan-out exception:', fanOutErr)
+    }
+    // -------------------------------------------------------------------------
+
     return { success: true, pin: createdPin }
   } catch (err) {
     console.error('Error in createPin:', err)
