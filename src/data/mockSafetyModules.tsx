@@ -5,13 +5,9 @@ export interface SafetyModule {
   title: string;
   description: string;
   category: string;
-  duration: string;
-  progress: number;
-  isLocked: boolean;
-  badge?: string;
   icon: React.ReactNode;
-  dailyStreak?: number; // new
-  videoUrl?: string; // new
+  point?: number;
+  videoUrl?: string;
   quiz?: { question: string; options: string[]; answer: string }[];
   qna?: { question: string; answer: string }[];
 }
@@ -22,12 +18,8 @@ export const mockSafetyModules: SafetyModule[] = [
     title: "CPR Training",
     description: "Learn life-saving cardiopulmonary resuscitation techniques",
     category: "First Aid",
-    duration: "15 min",
-    progress: 100,
-    isLocked: false,
-    badge: "CPR Certified",
     icon: <Heart className="w-6 h-6 text-red-500" />,
-    dailyStreak: 3,
+    point: 3,
     videoUrl: "https://www.youtube.com/embed/dQw4w9WgXcQ",
     quiz: [
       {
@@ -89,11 +81,8 @@ export const mockSafetyModules: SafetyModule[] = [
     title: "First Aid Basics",
     description: "Essential first aid skills for emergency situations",
     category: "First Aid",
-    duration: "20 min",
-    progress: 60,
-    isLocked: false,
     icon: <Shield className="w-6 h-6 text-blue-500" />,
-    dailyStreak: 1,
+    point: 1,
     videoUrl: "https://www.youtube.com/embed/9bZkp7q19f0",
     quiz: [
       {
@@ -116,11 +105,8 @@ export const mockSafetyModules: SafetyModule[] = [
     title: "Earthquake Safety",
     description: "What to do before, during, and after an earthquake",
     category: "Emergency",
-    duration: "10 min",
-    progress: 30,
-    isLocked: false,
     icon: <AlertTriangle className="w-6 h-6 text-orange-500" />,
-    dailyStreak: 0,
+    point: 0,
     videoUrl: "https://www.youtube.com/embed/3JZ_D3ELwOQ",
     quiz: [],
     qna: [],

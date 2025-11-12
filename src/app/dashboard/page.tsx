@@ -59,9 +59,6 @@ interface SafetyModule {
   title: string;
   description: string;
   category: string;
-  duration: string;
-  progress: number;
-  isLocked: boolean;
   badge?: string;
   icon: React.ReactNode;
 }
@@ -154,8 +151,6 @@ export default function DashboardPage() {
         module.id === moduleId
           ? {
               ...module,
-              isLocked: false,
-              progress: Math.min(module.progress + 25, 100),
             }
           : module
       )
@@ -176,9 +171,6 @@ export default function DashboardPage() {
     }
   };
 
-  const completedModules = safetyModules.filter(
-    (m) => m.progress === 100
-  ).length;
   const safeFamilyMembers = familyMembers.filter(
     (m) => m.status === "safe"
   ).length;
@@ -234,9 +226,9 @@ export default function DashboardPage() {
                   <p className="text-sm font-medium text-gray-600">
                     Modules Completed
                   </p>
-                  <p className="text-2xl font-bold text-blue-600">
+                  {/* <p className="text-2xl font-bold text-blue-600">
                     {completedModules}/{safetyModules.length}
-                  </p>
+                  </p> */}
                 </div>
                 <BookOpen className="w-8 h-8 text-blue-600" />
               </div>
@@ -266,9 +258,9 @@ export default function DashboardPage() {
                   <p className="text-sm font-medium text-gray-600">
                     Badges Earned
                   </p>
-                  <p className="text-2xl font-bold text-purple-600">
+                  {/* <p className="text-2xl font-bold text-purple-600">
                     {completedModules}
-                  </p>
+                  </p> */}
                 </div>
                 <Award className="w-8 h-8 text-purple-600" />
               </div>
@@ -496,19 +488,16 @@ export default function DashboardPage() {
               <CardContent>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   {safetyModules.map((module) => (
-                    <Card
-                      key={module.id}
-                      className={module.isLocked ? "opacity-75" : ""}
-                    >
+                    <Card key={module.id}>
                       <CardContent className="p-4">
                         <div className="flex items-start gap-3">
                           <div className="mt-1">{module.icon}</div>
                           <div className="flex-1">
                             <h3 className="font-medium flex items-center gap-2">
                               {module.title}
-                              {module.isLocked && (
+                              {/* {module.isLocked && (
                                 <Lock className="w-4 h-4 text-gray-500" />
-                              )}
+                              )} */}
                               {module.badge && (
                                 <Badge variant="secondary">
                                   {module.badge}
@@ -521,22 +510,8 @@ export default function DashboardPage() {
                             </p>
 
                             <div className="flex items-center gap-2 mt-2 text-xs text-gray-500">
-                              <span>{module.category}</span>•
-                              <span>{module.duration}</span>
+                              <span>{module.category}</span>
                             </div>
-
-                            {module.progress > 0 && (
-                              <div className="mt-3">
-                                <div className="flex justify-between text-xs mb-1">
-                                  <span>{t("safety.progress")}</span>
-                                  <span>{module.progress}%</span>
-                                </div>
-                                <Progress
-                                  value={module.progress}
-                                  className="h-2"
-                                />
-                              </div>
-                            )}
 
                             <div className="mt-3">
                               {/* {module.isLocked ? (
@@ -603,10 +578,7 @@ export default function DashboardPage() {
                   Recent earthquake alerts and safety notifications
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
-                {/* Your alert components remain as-is */}
-                ...
-              </CardContent>
+              <CardContent className="space-y-4">...</CardContent>
             </Card>
           </TabsContent>
         </Tabs>
