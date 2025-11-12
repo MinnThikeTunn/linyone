@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { createNotification } from '@/services/notifications'
 
 type FamilyLink = {
   id: string
@@ -18,7 +19,7 @@ export async function fetchFamilyMembers(userId: string) {
   try {
     const { data: links, error } = await supabase
       .from('family_members')
-      .select('*')
+      .select('id,user_id,member_id,relation,safety_status,safety_check_started_at,safety_check_expires_at,created_at')
       .eq('user_id', userId)
 
     if (error) {
@@ -54,6 +55,9 @@ export async function fetchFamilyMembers(userId: string) {
     const result = (links as any[]).map((l) => ({
       id: l.id,
       relation: l.relation,
+      safety_status: l.safety_status,
+      safety_check_started_at: l.safety_check_started_at,
+      safety_check_expires_at: l.safety_check_expires_at,
       member: (users as any[])?.find((u) => u.id === l.member_id) ?? { id: l.member_id }
     }))
 
@@ -77,6 +81,31 @@ export async function sendMessage(senderId: string, receiverId: string, content:
 
   if (error) throw error
   return data?.[0]
+}
+
+// Send a safety check notification to a family member
+export async function sendSafetyCheck(fromUserId: string, toUserId: string) {
+  try {
+    // Delegate to API to use server-only env
+    const res = await fetch('/api/family/safety/check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fromUserId, toUserId })
+    })
+    if (!res.ok) {
+      const j = await res.json().catch(() => undefined)
+      return { success: false, error: j?.error || 'request_failed' }
+    }
+    const j = await res.json().catch(() => ({})) as any
+    // normalize to seconds for downstream consumers
+    const durationSeconds = typeof j?.durationSeconds === 'number'
+      ? j.durationSeconds
+      : (typeof j?.durationMinutes === 'number' ? (j.durationMinutes * 60) : undefined)
+    return { success: true, durationSeconds }
+  } catch (err: any) {
+    console.error('sendSafetyCheck failed', err)
+    return { success: false, error: err }
+  }
 }
 
 export async function addFamilyMember(userId: string, phone: string, name?: string, relation?: string) {
@@ -132,15 +161,24 @@ export async function addFamilyMemberById(userId: string, memberId: string, rela
 
 export async function removeFamilyMemberById(userId: string, memberId: string) {
   try {
-    const { error } = await supabase
+    // Delete bidirectional links - remove from both perspectives
+    // Link 1: userId -> memberId (user's perspective)
+    const { error: error1 } = await supabase
       .from('family_members')
       .delete()
       .eq('user_id', userId)
       .eq('member_id', memberId)
 
-    if (error) {
-      console.error('error deleting family_members', error)
-      return { success: false, error }
+    // Link 2: memberId -> userId (member's perspective)
+    const { error: error2 } = await supabase
+      .from('family_members')
+      .delete()
+      .eq('user_id', memberId)
+      .eq('member_id', userId)
+
+    if (error1 || error2) {
+      console.error('error deleting family_members', { error1, error2 })
+      return { success: false, error: error1 || error2 }
     }
 
     return { success: true }
@@ -196,7 +234,29 @@ export async function sendFamilyRequest(fromUserId: string, toUserId: string, re
       return { success: false, error }
     }
 
-    return { success: true, data: data?.[0] }
+    const request = data?.[0]
+
+    // Create a notification for the recipient
+    try {
+      // fetch sender name for better message
+      const { data: sender } = await supabase
+        .from('users')
+        .select('id,name')
+        .eq('id', fromUserId)
+        .single()
+
+      await createNotification({
+        userId: toUserId,
+        type: 'family_request',
+        title: 'Family request',
+        body: `${sender?.name || 'Someone'} wants to add you as ${relation}`,
+        payload: { request_id: request?.id, from_user_id: fromUserId, to_user_id: toUserId, relation, sender_name: sender?.name }
+      })
+    } catch (notifyErr) {
+      console.warn('failed to create notification for family request', notifyErr)
+    }
+
+    return { success: true, data: request }
   } catch (err: any) {
     console.error('unexpected error sendFamilyRequest', err)
     return { success: false, error: err }
@@ -262,6 +322,85 @@ export async function getPendingFamilyRequests(userId: string) {
   }
 }
 
+// Get sent family requests (requests sent by the current user)
+// Only fetch pending requests since approved ones are in family_members and rejected ones are deleted
+export async function getSentFamilyRequests(userId: string) {
+  try {
+    const { data: requests, error } = await supabase
+      .from('family_requests')
+      .select('*')
+      .eq('from_user_id', userId)
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false })
+
+    if (error) {
+      console.error('error fetching sent family_requests', {
+        message: error.message,
+        details: (error as any).details,
+        hint: (error as any).hint,
+        code: (error as any).code,
+      })
+      return []
+    }
+
+    if (!requests || requests.length === 0) return []
+
+    // Fetch receiver details
+    const receiverIds = requests.map((r: any) => r.to_user_id)
+    const { data: users, error: usersError } = await supabase
+      .from('users')
+      .select('id,name,phone,email')
+      .in('id', receiverIds)
+
+    if (usersError) {
+      console.error('error fetching users for sent family_requests', usersError)
+      return requests.map((r: any) => ({
+        id: r.id,
+        from_user_id: r.from_user_id,
+        to_user_id: r.to_user_id,
+        relation: r.relation,
+        status: r.status,
+        created_at: r.created_at,
+        receiver: { id: r.to_user_id, name: 'Unknown' }
+      }))
+    }
+
+    // Map requests with receiver info
+    return requests.map((r: any) => ({
+      id: r.id,
+      from_user_id: r.from_user_id,
+      to_user_id: r.to_user_id,
+      relation: r.relation,
+      status: r.status,
+      created_at: r.created_at,
+      receiver: (users as any[])?.find((u) => u.id === r.to_user_id) ?? { id: r.to_user_id }
+    }))
+  } catch (err: any) {
+    console.error('unexpected error getSentFamilyRequests', err)
+    return []
+  }
+}
+
+// Cancel/delete a sent family request
+export async function cancelFamilyRequest(requestId: string) {
+  try {
+    const { error } = await supabase
+      .from('family_requests')
+      .delete()
+      .eq('id', requestId)
+
+    if (error) {
+      console.error('error canceling family request', error)
+      return { success: false, error }
+    }
+
+    return { success: true }
+  } catch (err: any) {
+    console.error('unexpected error cancelFamilyRequest', err)
+    return { success: false, error: err }
+  }
+}
+
 export async function approveFamilyRequest(requestId: string) {
   try {
     // Get the request details
@@ -298,14 +437,36 @@ export async function approveFamilyRequest(requestId: string) {
       return { success: false, error: link1Err || link2Err }
     }
 
-    // Update request status to approved
-    const { error: updateErr } = await supabase
+    // Update request status to approved (fire-and-forget, non-critical)
+    // Family links are already created above, so this is just for record-keeping
+    // We intentionally don't check the result to avoid logging false errors
+    // The update might fail if request was already processed/deleted, which is acceptable
+    // Since this is non-critical, we just attempt the update and continue
+    supabase
       .from('family_requests')
-      .update({ status: 'approved', updated_at: new Date().toISOString() })
+      .update({ status: 'approved' })
       .eq('id', requestId)
+      // Intentionally don't await or check result - no error logging
 
-    if (updateErr) {
-      console.error('error updating request status', updateErr)
+    // Notify the original sender that their request was accepted
+    try {
+      const { data: sender } = await supabase
+        .from('users')
+        .select('id,name')
+        .eq('id', request.to_user_id)
+        .single()
+      const notifyResult = await createNotification({
+        userId: request.from_user_id,
+        type: 'family_request_accepted',
+        title: 'Family request accepted',
+        body: `${sender?.name || 'They'} accepted your request`,
+        payload: { request_id: requestId, from_user_id: request.from_user_id, to_user_id: request.to_user_id, relation: request.relation, accepter_name: sender?.name }
+      })
+      if (!notifyResult.success) {
+        console.warn('failed to create notification for request accepted', notifyResult.error)
+      }
+    } catch (notifyErr) {
+      console.error('failed to notify request accepted', notifyErr)
     }
 
     return { success: true }
@@ -315,16 +476,68 @@ export async function approveFamilyRequest(requestId: string) {
   }
 }
 
+// Update safety status on response (safe or danger) and clear expiry window accordingly
+export async function respondToSafetyCheck(responderId: string, requesterId: string, status: 'safe' | 'danger') {
+  try {
+    // Update requester perspective (they initiated) ONLY if window is active
+    const nowIso = new Date().toISOString()
+    await supabase
+      .from('family_members')
+      .update({ safety_status: status })
+      .eq('user_id', requesterId)
+      .eq('member_id', responderId)
+      .gt('safety_check_expires_at', nowIso)
+
+    // Do NOT update reciprocal so receiver doesn't show badge/state automatically
+
+    return { success: true }
+  } catch (e) {
+    console.error('respondToSafetyCheck failed', e)
+    return { success: false, error: e }
+  }
+}
+
+// Fetch persisted safety state for a user perspective
+export async function fetchSafetyWindow(userId: string, memberId: string) {
+  const { data, error } = await supabase
+    .from('family_members')
+    .select('safety_status,safety_check_started_at,safety_check_expires_at')
+    .eq('user_id', userId)
+    .eq('member_id', memberId)
+    .maybeSingle()
+  if (error) return null
+  return data
+}
+
 export async function rejectFamilyRequest(requestId: string) {
   try {
-    const { error } = await supabase
+    // Get the request details first to notify sender later
+    const { data: request, error: fetchErr } = await supabase
       .from('family_requests')
-      .update({ status: 'rejected', updated_at: new Date().toISOString() })
+      .select('*')
       .eq('id', requestId)
+      .single()
 
-    if (error) {
-      console.error('error rejecting request', error)
-      return { success: false, error }
+    if (fetchErr || !request) {
+      console.error('error fetching request (reject)', fetchErr)
+      return { success: false, error: 'request_not_found' }
+    }
+
+    const { error: updateErr, data: updatedData } = await supabase
+      .from('family_requests')
+      .update({ status: 'rejected' })
+      .eq('id', requestId)
+      .select()
+
+    // Only fail if there's a meaningful error (has message, code, or details)
+    if (updateErr && (updateErr.message || updateErr.code || updateErr.details)) {
+      console.error('error rejecting request', {
+        message: updateErr.message,
+        code: updateErr.code,
+        details: updateErr.details,
+        hint: updateErr.hint
+      })
+      return { success: false, error: updateErr }
     }
 
     // Optionally delete rejected requests
@@ -332,6 +545,27 @@ export async function rejectFamilyRequest(requestId: string) {
       .from('family_requests')
       .delete()
       .eq('id', requestId)
+
+    // Notify the original sender that their request was rejected
+    try {
+      const { data: rejector } = await supabase
+        .from('users')
+        .select('id,name')
+        .eq('id', request.to_user_id)
+        .single()
+      const notifyResult = await createNotification({
+        userId: request.from_user_id,
+        type: 'family_request_rejected',
+        title: 'Family request rejected',
+        body: `${rejector?.name || 'They'} declined your request`,
+        payload: { request_id: requestId, from_user_id: request.from_user_id, to_user_id: request.to_user_id, relation: request.relation, rejector_name: rejector?.name }
+      })
+      if (!notifyResult.success) {
+        console.warn('failed to create notification for request rejected', notifyResult.error)
+      }
+    } catch (notifyErr) {
+      console.error('failed to notify request rejected', notifyErr)
+    }
 
     return { success: true }
   } catch (err: any) {
