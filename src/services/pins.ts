@@ -16,6 +16,22 @@ export interface Pin {
   image_url?: string
 }
 
+export interface Item {
+  id: string
+  name: string
+  unit: string
+  category: string
+}
+
+export interface PinItem {
+  id: string
+  pin_id: string
+  item_id: string
+  requested_qty: number
+  remaining_qty: number
+  item?: Item
+}
+
 export interface CreatePinInput {
   type: 'damaged' | 'safe'
   status: 'pending' | 'confirmed' | 'completed'
@@ -391,5 +407,180 @@ export async function deletePin(
   } catch (err) {
     console.error('Error in deletePin:', err)
     return { success: false, error: 'Failed to delete pin' }
+  }
+}
+
+/**
+ * Fetch all items from the database
+ */
+export async function fetchItems(): Promise<{ success: boolean; items?: Item[]; error?: string }> {
+  try {
+    const { data, error } = await supabase
+      .from('items')
+      .select('*')
+      .order('name', { ascending: true })
+
+    if (error) {
+      console.error('Error fetching items:', error)
+      return { success: false, error: error.message }
+    }
+
+    return { success: true, items: data || [] }
+  } catch (err) {
+    console.error('Error in fetchItems:', err)
+    return { success: false, error: 'Failed to fetch items' }
+  }
+}
+
+/**
+ * Create pin items for a confirmed pin
+ * Called when a tracker confirms a pin with specific item requests
+ */
+export async function createPinItems(
+  pinId: string,
+  items: Array<{ item_id: string; requested_qty: number }>
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    if (!items || items.length === 0) {
+      return { success: true }
+    }
+
+    // Create pin items records
+    const pinItemsData = items.map((item) => ({
+      pin_id: pinId,
+      item_id: item.item_id,
+      requested_qty: item.requested_qty,
+      remaining_qty: item.requested_qty,
+      created_at: new Date().toISOString(),
+    }))
+
+    const { error } = await supabase
+      .from('pin_items')
+      .insert(pinItemsData)
+
+    if (error) {
+      console.error('Error creating pin items:', error)
+      return { success: false, error: error.message }
+    }
+
+    console.log('✅ Pin items created successfully:', pinId)
+    return { success: true }
+  } catch (err) {
+    console.error('Error in createPinItems:', err)
+    return { success: false, error: 'Failed to create pin items' }
+  }
+}
+
+/**
+ * Fetch pins with their associated items
+ */
+export async function fetchPinsWithItems(): Promise<{
+  success: boolean
+  pins?: (Pin & { pin_items?: (PinItem & { item?: Item })[] })[]
+  error?: string
+}> {
+  try {
+    // Fetch pins
+    const { data: pinsData, error: pinsError } = await supabase
+      .from('pins')
+      .select('*')
+      .order('created_at', { ascending: false })
+
+    if (pinsError) {
+      console.error('Error fetching pins:', pinsError)
+      return { success: false, error: pinsError.message }
+    }
+
+    if (!pinsData) {
+      return { success: true, pins: [] }
+    }
+
+    // Fetch pin items with item details
+    const { data: pinItemsData, error: pinItemsError } = await supabase
+      .from('pin_items')
+      .select('*, items(*)')
+
+    if (pinItemsError) {
+      console.warn('Could not fetch pin items:', pinItemsError.message)
+    }
+
+    // Build pin map with items
+    const pinItemsMap: { [pinId: string]: (PinItem & { item?: Item })[] } = {}
+    if (pinItemsData) {
+      pinItemsData.forEach((pi: any) => {
+        if (!pinItemsMap[pi.pin_id]) {
+          pinItemsMap[pi.pin_id] = []
+        }
+        pinItemsMap[pi.pin_id].push({
+          id: pi.id,
+          pin_id: pi.pin_id,
+          item_id: pi.item_id,
+          requested_qty: pi.requested_qty,
+          remaining_qty: pi.remaining_qty,
+          item: pi.items,
+        })
+      })
+    }
+
+    // Get user details
+    const userIds = [...new Set(pinsData.map((pin: any) => pin.user_id).filter(Boolean))]
+    let userMap: { [key: string]: { name: string } } = {}
+    if (userIds.length > 0) {
+      const { data: users, error: usersError } = await supabase
+        .from('users')
+        .select('id, name')
+        .in('id', userIds)
+
+      if (usersError) {
+        console.warn('Could not fetch user details:', usersError.message)
+      } else if (users) {
+        userMap = Object.fromEntries(users.map((u: any) => [u.id, { name: u.name }]))
+      }
+    }
+
+    const pins = pinsData.map((row: any) => ({
+      id: row.id,
+      type: (row.type === 'damage' ? 'damaged' : 'safe') as 'damaged' | 'safe',
+      status: row.status as 'pending' | 'confirmed' | 'completed',
+      phone: row.phone,
+      description: row.description,
+      lat: parseFloat(row.latitude),
+      lng: parseFloat(row.longitude),
+      createdBy: (row.user_id && userMap[row.user_id]?.name) || 'Anonymous User',
+      createdAt: new Date(row.created_at),
+      image: row.image_url || undefined,
+      user_id: row.user_id,
+      pin_items: pinItemsMap[row.id] || [],
+    }))
+
+    return { success: true, pins }
+  } catch (err) {
+    console.error('Error in fetchPinsWithItems:', err)
+    return { success: false, error: 'Failed to fetch pins with items' }
+  }
+}
+
+/**
+ * Update pin item quantities after delivery/fulfillment
+ */
+export async function updatePinItemQuantity(
+  pinItemId: string,
+  newRemainingQty: number
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { error } = await supabase
+      .from('pin_items')
+      .update({ remaining_qty: newRemainingQty })
+      .eq('id', pinItemId)
+
+    if (error) {
+      console.error('Error updating pin item quantity:', error)
+      return { success: false, error: error.message }
+    }
+
+    return { success: true }
+  } catch (err) {
+    console.error('Error in updatePinItemQuantity:', err)
+    return { success: false, error: 'Failed to update pin item quantity' }
   }
 }
