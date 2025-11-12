@@ -4,7 +4,6 @@ import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { useToast } from "@/hooks/use-toast";
 import {
   Dialog,
   DialogContent,
@@ -42,20 +41,6 @@ import {
 } from "lucide-react";
 import { useLanguage } from "@/hooks/use-language";
 import { useAuth } from "@/hooks/use-auth";
-import {
-  createPin,
-  fetchPins,
-  updatePinStatus,
-  isUserActiveTracker,
-  getUserOrgMember,
-  fetchItems,
-  createPinItems,
-  fetchPinsWithItems,
-  updatePinItemQuantity,
-  type Pin as SupabasePin,
-  type Item,
-  type PinItem 
-} from "@/services/pins";
 
 // Add Mapbox GL JS
 import mapboxgl from "mapbox-gl";
@@ -77,7 +62,6 @@ interface Pin {
   createdAt: Date;
   image?: string;
   assignedTo?: string;
-  user_id?: string;
   items?: {
     peopleHurt?: number;
     foodPacks?: number;
@@ -93,15 +77,52 @@ interface User {
   id: string;
   name: string;
   email: string;
-  role: "admin" | "tracking_volunteer" | "supply_volunteer" | "user";
-  accountType?: 'user' | 'organization';
+  role: "admin" | "tracking_volunteer" | "supply_volunteer" | "user"; // Add role property
 }
+
+// Mock data for demonstration
+const mockPins: Pin[] = [
+  {
+    id: "1",
+    type: "damaged",
+    status: "confirmed",
+    // title: "Building Collapse",
+    phone: "09786993797",
+    description: "Multi-story building collapsed, need immediate rescue",
+    lat: 16.8409,
+    lng: 96.1735,
+    createdBy: "Volunteer Team A",
+    createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+    assignedTo: "Rescue Team B",
+  },
+  {
+    id: "2",
+    type: "safe",
+    status: "confirmed",
+    phone: "09786993797",
+    description: "School gym converted to emergency shelter",
+    lat: 16.8509,
+    lng: 96.1835,
+    createdBy: "City Authority",
+    createdAt: new Date(Date.now() - 4 * 60 * 60 * 1000),
+  },
+  {
+    id: "3",
+    type: "damaged",
+    status: "pending",
+    phone: "09786993797",
+    description: "Major road blocked by fallen trees",
+    lat: 16.8309,
+    lng: 96.1635,
+    createdBy: "Anonymous User",
+    createdAt: new Date(Date.now() - 30 * 60 * 1000),
+  },
+];
 
 export default function HomePage() {
   const { t, language } = useLanguage();
   const { user, isAuthenticated } = useAuth();
-  const { toast } = useToast();
-  const [pins, setPins] = useState<Pin[]>([]);
+  const [pins, setPins] = useState<Pin[]>(mockPins);
   const [selectedPin, setSelectedPin] = useState<Pin | null>(null);
   const [showPinDialog, setShowPinDialog] = useState(false);
   const [pinType, setPinType] = useState<"damaged" | "safe">("damaged");
@@ -124,17 +145,24 @@ export default function HomePage() {
     lat: number;
     lng: number;
   } | null>(null);
-  const [isCreatingPin, setIsCreatingPin] = useState(false);
-  const [isUserTracker, setIsUserTracker] = useState(false);
-  const [userOrgMemberId, setUserOrgMemberId] = useState<string | null>(null);
   const [showConfirmPinDialog, setShowConfirmPinDialog] = useState(false);
   const [showPinListDialog, setShowPinListDialog] = useState(false);
   const [pinToConfirm, setPinToConfirm] = useState<Pin | null>(null);
-  
-  // Items from database
-  const [availableItems, setAvailableItems] = useState<Item[]>([]);
-  const [selectedItems, setSelectedItems] = useState<Map<string, number>>(new Map());
-  
+  const [itemQuantities, setItemQuantities] = useState<{
+    peopleHurt: { checked: boolean; quantity: number };
+    foodPacks: { checked: boolean; quantity: number };
+    waterBottles: { checked: boolean; quantity: number };
+    medicineBox: { checked: boolean; quantity: number };
+    clothesPacks: { checked: boolean; quantity: number };
+    blankets: { checked: boolean; quantity: number };
+  }>({
+    peopleHurt: { checked: false, quantity: 0 },
+    foodPacks: { checked: false, quantity: 0 },
+    waterBottles: { checked: false, quantity: 0 },
+    medicineBox: { checked: false, quantity: 0 },
+    clothesPacks: { checked: false, quantity: 0 },
+    blankets: { checked: false, quantity: 0 },
+  });
   const [emergencyKitItems, setEmergencyKitItems] = useState<Record<string, boolean>>({
     water: false,
     food: false,
@@ -176,59 +204,6 @@ export default function HomePage() {
     return true;
   });
 
-  // Load pins and items from database on mount and when user changes
-  useEffect(() => {
-    const loadPinsAndUserRole = async () => {
-      try {
-        // Fetch pins from database
-        const pinsResult = await fetchPins();
-        if (pinsResult.success && pinsResult.pins) {
-          setPins(pinsResult.pins);
-          console.log(`Loaded ${pinsResult.pins.length} pins from database`);
-        } else if (!pinsResult.success) {
-          console.warn("Failed to load pins:", pinsResult.error);
-          if (pinsResult.error) {
-            toast({
-              title: "Warning",
-              description: `Could not load pins: ${pinsResult.error}`,
-              variant: "destructive",
-            });
-          }
-        }
-
-        // Fetch items from database
-        const itemsResult = await fetchItems();
-        if (itemsResult.success && itemsResult.items) {
-          setAvailableItems(itemsResult.items);
-          console.log(`Loaded ${itemsResult.items.length} items from database`);
-        }
-
-        // Check if current user is a tracker
-        if (user?.id) {
-          try {
-            const isTracker = await isUserActiveTracker(user.id);
-            setIsUserTracker(isTracker);
-            console.log(`User tracker status: ${isTracker}`);
-
-            if (isTracker) {
-              const orgMember = await getUserOrgMember(user.id);
-              if (orgMember) {
-                setUserOrgMemberId(orgMember.id);
-                console.log(`User org-member ID: ${orgMember.id}`);
-              }
-            }
-          } catch (err) {
-            console.error("Error checking tracker status:", err);
-          }
-        }
-      } catch (error) {
-        console.error("Error loading pins and user role:", error);
-      }
-    };
-
-    loadPinsAndUserRole();
-  }, [user?.id, toast]);
-
   useEffect(() => {
     // Initialize Mapbox map
     if (!map.current && mapContainer.current) {
@@ -247,12 +222,12 @@ export default function HomePage() {
         map.current.on("load", () => {
           setMapLoading(false);
 
-          // Get user's current location
-          if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(
-              (position) => {
-                const location = {
-                  lat: position.coords.latitude,
+    // Get user's current location
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const location = {
+            lat: position.coords.latitude,
                   lng: position.coords.longitude,
                 };
                 setUserLocation(location);
@@ -272,8 +247,8 @@ export default function HomePage() {
                     .setLngLat([location.lng, location.lat])
                     .addTo(map.current!);
                 }
-              },
-              (error) => {
+        },
+        (error) => {
                 console.error("Error getting location:", error);
               }
             );
@@ -350,7 +325,6 @@ export default function HomePage() {
       // Create marker element
       const el = document.createElement("div");
       el.className = "cursor-pointer";
-      el.setAttribute("data-pin-id", pin.id);
 
       // Create marker based on pin type
       const markerDiv = document.createElement("div");
@@ -457,192 +431,59 @@ export default function HomePage() {
     }
   };
 
-  const handleCreatePin = async () => {
+  const handleCreatePin = () => {
     if (!pinPhone || !pinDescription) return;
 
-    setIsCreatingPin(true);
-    try {
-      // Use selected location or map center
-      const location = newPinLocation || mapCenter;
+    // Use selected location or map center
+    const location = newPinLocation || mapCenter;
 
-      // Call Supabase service to create pin with user role for status determination
-      const result = await createPin(
-        {
-          type: pinType,
-          status: "pending", // Will be set by database based on user role
-          phone: pinPhone,
-          description: pinDescription,
-          lat: location.lat,
-          lng: location.lng,
-          createdBy: user?.name || "Anonymous User",
-          user_id: user?.id ?? null,
-          image: undefined,
-        },
-        pinImage || undefined,
-        (user as User)?.accountType === 'organization' ? 'organization' : user?.role
-      );
+    const newPin: Pin = {
+      id: Date.now().toString(),
+      type: pinType,
+      status: userRole === "tracking_volunteer" ? "confirmed" : "pending",
+      phone: pinPhone,
+      description: pinDescription,
+      lat: location.lat,
+      lng: location.lng,
+      createdBy: user?.name || "Anonymous User",
+      createdAt: new Date(),
+      image: pinImage ? URL.createObjectURL(pinImage) : undefined,
+    };
 
-      if (result.success && result.pin) {
-        // Add new pin to local state
-        setPins([result.pin, ...pins]);
+    setPins([newPin, ...pins]);
+    setPinPhone("");
+    setPinDescription("");
+    setPinImage(null);
+    setShowPinDialog(false);
+    setNewPinLocation(null);
+    setIsSelectingLocation(false);
 
-        // Reset form
-        setPinPhone("");
-        setPinDescription("");
-        setPinImage(null);
-        setShowPinDialog(false);
-        setNewPinLocation(null);
-        setIsSelectingLocation(false);
-
-        // Remove temp marker
-        if (tempMarker.current) {
-          tempMarker.current.remove();
-          tempMarker.current = null;
-        }
-
-        // Fly to new pin location
-        if (map.current) {
-          map.current.flyTo({
-            center: [result.pin.lng, result.pin.lat],
-            zoom: 14,
-          });
-        }
-
-        toast({
-          title: "Success",
-          description: "Pin created successfully",
-        });
-      } else {
-        toast({
-          title: "Error",
-          description: result.error || "Failed to create pin",
-          variant: "destructive",
-        });
-      }
-    } catch (error) {
-      console.error("Error creating pin:", error);
-      toast({
-        title: "Error",
-        description: "Failed to create pin",
-        variant: "destructive",
-      });
-    } finally {
-      setIsCreatingPin(false);
+    // Remove temp marker
+    if (tempMarker.current) {
+      tempMarker.current.remove();
+      tempMarker.current = null;
     }
-  };
 
-  const handleConfirmPin = async (pinId: string) => {
-    try {
-      // Verify user is authenticated and is a tracker before attempting confirmation
-      if (!user?.id) {
-        toast({
-          title: "Error",
-          description: "You must be logged in to confirm pins",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      if (!isUserTracker) {
-        toast({
-          title: "Error",
-          description: "Only trackers can confirm pins",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      const result = await updatePinStatus(
-        pinId,
-        "confirmed",
-        userOrgMemberId || undefined,
-        user.id
-      );
-
-      if (result.success) {
-        setPins(
-          pins.map((pin) =>
-            pin.id === pinId ? { ...pin, status: "confirmed" } : pin
-          )
-        );
-        toast({
-          title: "Success",
-          description: "Pin confirmed successfully",
-        });
-      } else {
-        toast({
-          title: "Error",
-          description: result.error || "Failed to confirm pin",
-          variant: "destructive",
-        });
-      }
-    } catch (error) {
-      console.error("Error confirming pin:", error);
-      toast({
-        title: "Error",
-        description: "Failed to confirm pin",
-        variant: "destructive",
+    // Fly to new pin location
+    if (map.current) {
+      map.current.flyTo({
+        center: [newPin.lng, newPin.lat],
+        zoom: 14,
       });
     }
   };
+
 
   const handleDenyPin = (pinId: string) => {
     setPins(pins.filter((pin) => pin.id !== pinId));
   };
 
-  const handleMarkCompleted = async (pinId: string) => {
-    try {
-      // Verify user is authenticated and is a tracker
-      if (!user?.id) {
-        toast({
-          title: "Error",
-          description: "You must be logged in to update pins",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      if (!isUserTracker) {
-        toast({
-          title: "Error",
-          description: "Only trackers can mark pins as completed",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      const result = await updatePinStatus(
-        pinId,
-        "completed",
-        undefined,
-        user.id
-      );
-
-      if (result.success) {
-        setPins(
-          pins.map((pin) =>
-            pin.id === pinId ? { ...pin, status: "completed" } : pin
-          )
-        );
-        toast({
-          title: "Success",
-          description: "Pin marked as completed",
-        });
-      } else {
-        toast({
-          title: "Error",
-          description: result.error || "Failed to mark pin as completed",
-          variant: "destructive",
-        });
-      }
-    } catch (error) {
-      console.error("Error marking pin completed:", error);
-      toast({
-        title: "Error",
-        description: "Failed to mark pin as completed",
-        variant: "destructive",
-      });
-    }
+  const handleMarkCompleted = (pinId: string) => {
+    setPins(
+      pins.map((pin) =>
+        pin.id === pinId ? { ...pin, status: "completed" } : pin
+      )
+    );
   };
 
   const getStatusColor = (status: string) => {
@@ -707,89 +548,78 @@ export default function HomePage() {
     setPinToConfirm(pin);
     setShowPinListDialog(false);
     setShowConfirmPinDialog(true);
-    // Reset selected items
-    setSelectedItems(new Map());
+    // Reset item quantities
+    setItemQuantities({
+      peopleHurt: { checked: false, quantity: 0 },
+      foodPacks: { checked: false, quantity: 0 },
+      waterBottles: { checked: false, quantity: 0 },
+      medicineBox: { checked: false, quantity: 0 },
+      clothesPacks: { checked: false, quantity: 0 },
+      blankets: { checked: false, quantity: 0 },
+    });
   };
 
-  const handleItemToggle = (itemId: string, quantity: number) => {
-    const newSelected = new Map(selectedItems);
-    if (newSelected.has(itemId)) {
-      newSelected.delete(itemId);
-    } else {
-      newSelected.set(itemId, quantity);
-    }
-    setSelectedItems(newSelected);
+  const handleItemCheckboxChange = (item: keyof typeof itemQuantities, checked: boolean) => {
+    setItemQuantities((prev) => ({
+      ...prev,
+      [item]: {
+        checked,
+        quantity: checked ? prev[item].quantity : 0,
+      },
+    }));
   };
 
-  const handleItemQuantityChange = (itemId: string, quantity: number) => {
-    const newSelected = new Map(selectedItems);
-    if (quantity > 0) {
-      newSelected.set(itemId, quantity);
-    } else {
-      newSelected.delete(itemId);
-    }
-    setSelectedItems(newSelected);
+  const handleQuantityChange = (item: keyof typeof itemQuantities, delta: number) => {
+    setItemQuantities((prev) => ({
+      ...prev,
+      [item]: {
+        ...prev[item],
+        quantity: Math.max(0, prev[item].quantity + delta),
+      },
+    }));
   };
 
-  const handleConfirmPinWithItems = async () => {
+  const handleConfirmPin = () => {
     if (!pinToConfirm) return;
 
-    try {
-      // First, confirm the pin status
-      const result = await updatePinStatus(
-        pinToConfirm.id,
-        "confirmed",
-        userOrgMemberId || undefined,
-        user?.id
-      );
-
-      if (result.success) {
-        // Then, create pin items records for selected items
-        if (selectedItems.size > 0) {
-          const itemsToCreate = Array.from(selectedItems.entries()).map(([itemId, quantity]) => ({
-            item_id: itemId,
-            requested_qty: quantity,
-          }));
-
-          const itemsResult = await createPinItems(pinToConfirm.id, itemsToCreate);
-
-          if (!itemsResult.success) {
-            console.warn("Warning: Pin confirmed but items not created:", itemsResult.error);
-          }
-        }
-
-        // Update local state
-        setPins(
-          pins.map((pin) =>
-            pin.id === pinToConfirm.id
-              ? { ...pin, status: "confirmed" as const }
-              : pin
-          )
-        );
-
-        setShowConfirmPinDialog(false);
-        setPinToConfirm(null);
-        setSelectedItems(new Map());
-
-        toast({
-          title: "Success",
-          description: "Pin confirmed with items recorded",
-        });
-      } else {
-        toast({
-          title: "Error",
-          description: result.error || "Failed to confirm pin",
-          variant: "destructive",
-        });
-      }
-    } catch (error) {
-      console.error("Error confirming pin with items:", error);
-      toast({
-        title: "Error",
-        description: "Failed to confirm pin",
-        variant: "destructive",
-      });
+    const items: Pin["items"] = {};
+    if (itemQuantities.peopleHurt.checked && itemQuantities.peopleHurt.quantity > 0) {
+      items.peopleHurt = itemQuantities.peopleHurt.quantity;
     }
+    if (itemQuantities.foodPacks.checked && itemQuantities.foodPacks.quantity > 0) {
+      items.foodPacks = itemQuantities.foodPacks.quantity;
+    }
+    if (itemQuantities.waterBottles.checked && itemQuantities.waterBottles.quantity > 0) {
+      items.waterBottles = itemQuantities.waterBottles.quantity;
+    }
+    if (itemQuantities.medicineBox.checked && itemQuantities.medicineBox.quantity > 0) {
+      items.medicineBox = itemQuantities.medicineBox.quantity;
+    }
+    if (itemQuantities.clothesPacks.checked && itemQuantities.clothesPacks.quantity > 0) {
+      items.clothesPacks = itemQuantities.clothesPacks.quantity;
+    }
+    if (itemQuantities.blankets.checked && itemQuantities.blankets.quantity > 0) {
+      items.blankets = itemQuantities.blankets.quantity;
+    }
+
+    setPins(
+      pins.map((pin) =>
+        pin.id === pinToConfirm.id
+          ? { ...pin, status: "confirmed" as const, items }
+          : pin
+      )
+    );
+
+    setShowConfirmPinDialog(false);
+    setPinToConfirm(null);
+    setItemQuantities({
+      peopleHurt: { checked: false, quantity: 0 },
+      foodPacks: { checked: false, quantity: 0 },
+      waterBottles: { checked: false, quantity: 0 },
+      medicineBox: { checked: false, quantity: 0 },
+      clothesPacks: { checked: false, quantity: 0 },
+      blankets: { checked: false, quantity: 0 },
+    });
   };
 
   return (
@@ -798,22 +628,23 @@ export default function HomePage() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Map Area */}
           <div className="lg:col-span-2">
-            {/* Header */}
+      {/* Header */}
             <div className="max-w-7xl mx-auto py-4">
-              <div className={`flex items-center gap-2 w-full ${isUserTracker ? "flex-wrap" : ""}`}>
-                <Button
-                  variant="outline"
-                  size={isUserTracker ? "sm" : "default"}
-                  onClick={handleGetCurrentLocation}
-                  disabled={isGettingLocation}
-                  className={`flex items-center lg:gap-2 ${isUserTracker ? "" : "flex-1 h-12"}`}
-                  style={isUserTracker ? { flex: "1" } : {}}
-                >
+              {/* <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"> */}
+              <div className={`flex items-center gap-2 w-full ${userRole === "tracking_volunteer" ? "flex-wrap" : ""}`}>
+              <Button
+                variant="outline"
+                size={userRole === "tracking_volunteer" ? "sm" : "default"}
+                onClick={handleGetCurrentLocation}
+                disabled={isGettingLocation}
+                  className={`flex items-center lg:gap-2 ${userRole === "tracking_volunteer" ? "" : "flex-1 h-12"}`}
+                  style={userRole === "tracking_volunteer" ? { flex: "1" } : {}}
+              >
                   <Navigation className="w-5 h-5" />
                   {t("map.currentLocation")}
-                </Button>
-                
-                {isUserTracker && (
+              </Button>
+              
+                {userRole === "tracking_volunteer" && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -840,82 +671,80 @@ export default function HomePage() {
                     }
                   }}
                 >
-                  {/* Hide "Add Pin" button for organizations - they only manage pins */}
-                  {(user as User)?.accountType !== 'organization' && (
-                    <DialogTrigger asChild>
-                      <Button
-                        size={isUserTracker ? "sm" : "default"}
-                        className={`flex items-center gap-2 bg-black ${isUserTracker ? "w-1/2" : "flex-1 h-12"}`}
-                      >
-                        <Plus className="w-4 h-4" />
-                        {t("map.addPin")}
-                      </Button>
-                    </DialogTrigger>
-                  )}
-                  <DialogContent className="sm:max-w-md">
-                    <DialogHeader>
+                <DialogTrigger asChild>
+                    <Button
+                      // variant="outline"
+                      size={userRole === "tracking_volunteer" ? "sm" : "default"}
+                      className={`flex items-center gap-2 bg-black ${userRole === "tracking_volunteer" ? "w-1/2" : "flex-1 h-12"}`}
+                    >
+                    <Plus className="w-4 h-4" />
+                      {t("map.addPin")}
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-md">
+                  <DialogHeader>
                       <DialogTitle>{t("map.title")}</DialogTitle>
-                    </DialogHeader>
-                    <div className="space-y-4">
-                      <div>
+                  </DialogHeader>
+                  <div className="space-y-4">
+                    <div>
                         <Select
                           value={pinType}
                           onValueChange={(value: "damaged" | "safe") =>
                             setPinType(value)
                           }
                         >
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
                             <SelectItem value="damaged">
                               {t("map.damagedLocation")}
                             </SelectItem>
                             <SelectItem value="safe">
                               {t("map.safeZone")}
                             </SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      
-                      <div>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    
+                    <div>
                         <Label htmlFor="pin-title" className="mb-2">
                           Phone No
                         </Label>
-                        <Input
-                          id="pin-title"
+                      <Input
+                        id="pin-title"
                           value={pinPhone}
                           onChange={(e) => setPinPhone(e.target.value)}
                           placeholder="Enter Phone..."
-                        />
-                      </div>
-                      
-                      <div>
+                      />
+                    </div>
+                    
+                    <div>
                         <Label htmlFor="pin-description" className="mb-2">
                           {t("map.description")}
                         </Label>
-                        <Textarea
-                          id="pin-description"
-                          value={pinDescription}
-                          onChange={(e) => setPinDescription(e.target.value)}
-                          placeholder="Describe the situation..."
-                          rows={3}
-                        />
-                      </div>
-                      
-                      <div>
+                      <Textarea
+                        id="pin-description"
+                        value={pinDescription}
+                        onChange={(e) => setPinDescription(e.target.value)}
+                        placeholder="Describe the situation..."
+                        rows={3}
+                      />
+                    </div>
+                    
+                    <div>
                         <Label htmlFor="pin-image" className="mb-2">
                           {t("map.uploadImage")}
                         </Label>
-                        <Input
-                          id="pin-image"
-                          type="file"
-                          accept="image/*"
+                      <Input
+                        id="pin-image"
+                        type="file"
+                        accept="image/*"
                           onChange={(e) =>
                             setPinImage(e.target.files?.[0] || null)
                           }
-                        />
-                      </div>
+                      />
+                    </div>
 
                       <div className="flex gap-2">
                         <Button
@@ -938,34 +767,23 @@ export default function HomePage() {
                         </div>
                       )}
                     
-                      <div className="flex gap-2">
-                        <Button
-                          onClick={handleCreatePin}
-                          className="flex-1"
-                          disabled={isCreatingPin}
-                        >
-                          {isCreatingPin ? (
-                            <div className="flex items-center gap-2">
-                              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                              Creating...
-                            </div>
-                          ) : (
-                            t("map.submit")
-                          )}
-                        </Button>
+                    <div className="flex gap-2">
+                      <Button onClick={handleCreatePin} className="flex-1">
+                          {t("map.submit")}
+                      </Button>
                         <Button
                           variant="outline"
                           onClick={() => setShowPinDialog(false)}
-                          disabled={isCreatingPin}
                         >
                           {t("map.cancel")}
-                        </Button>
-                      </div>
+                      </Button>
                     </div>
-                  </DialogContent>
-                </Dialog>
-              </div>
+                  </div>
+                </DialogContent>
+              </Dialog>
             </div>
+              {/* </div> */}
+          </div>
 
             <Card className="h-[800px] py-0">
               <CardContent className="p-0 h-full relative">
@@ -981,8 +799,8 @@ export default function HomePage() {
                     <div className="text-center">
                       <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
                       <p className="text-gray-600">Loading map...</p>
-                    </div>
-                  </div>
+        </div>
+      </div>
                 )}
 
                 {/* Map Error State */}
@@ -998,8 +816,8 @@ export default function HomePage() {
                         Reload Page
                       </Button>
                     </div>
-                  </div>
-                )}
+                      </div>
+                    )}
                     
                 {/* Location Selection Indicator */}
                 {isSelectingLocation && (
@@ -1020,7 +838,7 @@ export default function HomePage() {
                     >
                       Done
                     </Button>
-                  </div>
+                        </div>
                 )}
                   
                   {/* Map Legend */}
@@ -1029,26 +847,26 @@ export default function HomePage() {
                     <div className="space-y-1">
                       <div className="flex items-center gap-2 text-xs">
                         <div className="w-4 h-4 bg-red-500 rounded-full" />
-                        <span>{t("map.damagedLocation")}</span>
+                      <span>{t("map.damagedLocation")}</span>
                       </div>
                       <div className="flex items-center gap-2 text-xs">
                         <div className="w-4 h-4 bg-green-500 rounded-full" />
-                        <span>{t("map.safeZone")}</span>
+                      <span>{t("map.safeZone")}</span>
                       </div>
                       <div className="flex items-center gap-2 text-xs">
                         <div className="w-3 h-3 bg-yellow-400 rounded-full" />
-                        <span>{t("map.pending")}</span>
+                      <span>{t("map.pending")}</span>
                       </div>
                       <div className="flex items-center gap-2 text-xs">
                         <div className="w-3 h-3 bg-green-400 rounded-full" />
-                        <span>{t("map.confirmed")}</span>
+                      <span>{t("map.confirmed")}</span>
                       </div>
                       <div className="flex items-center gap-2 text-xs">
                         <div className="w-3 h-3 bg-blue-400 rounded-full" />
-                        <span>{t("map.completed")}</span>
-                      </div>
+                      <span>{t("map.completed")}</span>
                     </div>
                   </div>
+                </div>
               </CardContent>
             </Card>
           </div>
@@ -1145,10 +963,10 @@ export default function HomePage() {
                             }}
                             className="w-full mt-2"
                           >
-                            <Check className="w-3 h-3 mr-1" />
-                            Mark Delivered
-                          </Button>
-                        )}
+                          <Check className="w-3 h-3 mr-1" />
+                          Mark Delivered
+                        </Button>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -1165,38 +983,210 @@ export default function HomePage() {
               </CardHeader>
               <CardContent>
                 <div className="max-h-64 overflow-y-auto space-y-3 pr-2">
-                  {[
-                    { id: "water", label: "Water (1 gallon per person per day)" },
-                    { id: "food", label: "Non-perishable food (3-day supply)" },
-                    { id: "flashlight", label: "Flashlight" },
-                    { id: "firstAid", label: "First aid supplies" },
-                    { id: "batteries", label: "Extra batteries" },
-                    { id: "radio", label: "Battery-powered or hand-crank radio" },
-                    { id: "whistle", label: "Whistle (to signal for help)" },
-                    { id: "dustMask", label: "Dust mask" },
-                    { id: "plasticSheeting", label: "Plastic sheeting and duct tape" },
-                    { id: "canOpener", label: "Manual can opener" },
-                    { id: "localMaps", label: "Local maps" },
-                    { id: "cellPhone", label: "Cell phone with charger" },
-                    { id: "cash", label: "Cash or traveler's checks" },
-                    { id: "importantDocuments", label: "Important documents (copies)" },
-                    { id: "warmClothing", label: "Warm clothing and blankets" },
-                    { id: "tools", label: "Basic tools (wrench, pliers)" },
-                    { id: "sanitation", label: "Sanitation and personal hygiene items" },
-                  ].map(({ id, label }) => (
-                    <div key={id} className="flex items-center space-x-2">
-                      <Checkbox
-                        id={id}
-                        checked={emergencyKitItems[id] || false}
-                        onCheckedChange={(checked) =>
-                          setEmergencyKitItems(prev => ({ ...prev, [id]: checked as boolean }))
-                        }
-                      />
-                      <Label htmlFor={id} className="text-sm font-normal cursor-pointer">
-                        {label}
-                      </Label>
-                    </div>
-                  ))}
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="water"
+                      checked={emergencyKitItems.water}
+                      onCheckedChange={(checked) =>
+                        setEmergencyKitItems(prev => ({ ...prev, water: checked as boolean }))
+                      }
+                    />
+                    <Label htmlFor="water" className="text-sm font-normal cursor-pointer">
+                      Water (1 gallon per person per day)
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="food"
+                      checked={emergencyKitItems.food}
+                      onCheckedChange={(checked) =>
+                        setEmergencyKitItems(prev => ({ ...prev, food: checked as boolean }))
+                      }
+                    />
+                    <Label htmlFor="food" className="text-sm font-normal cursor-pointer">
+                      Non-perishable food (3-day supply)
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="flashlight"
+                      checked={emergencyKitItems.flashlight}
+                      onCheckedChange={(checked) =>
+                        setEmergencyKitItems(prev => ({ ...prev, flashlight: checked as boolean }))
+                      }
+                    />
+                    <Label htmlFor="flashlight" className="text-sm font-normal cursor-pointer">
+                      Flashlight
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="firstAid"
+                      checked={emergencyKitItems.firstAid}
+                      onCheckedChange={(checked) =>
+                        setEmergencyKitItems(prev => ({ ...prev, firstAid: checked as boolean }))
+                      }
+                    />
+                    <Label htmlFor="firstAid" className="text-sm font-normal cursor-pointer">
+                      First aid supplies
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="batteries"
+                      checked={emergencyKitItems.batteries}
+                      onCheckedChange={(checked) =>
+                        setEmergencyKitItems(prev => ({ ...prev, batteries: checked as boolean }))
+                      }
+                    />
+                    <Label htmlFor="batteries" className="text-sm font-normal cursor-pointer">
+                      Extra batteries
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="radio"
+                      checked={emergencyKitItems.radio}
+                      onCheckedChange={(checked) =>
+                        setEmergencyKitItems(prev => ({ ...prev, radio: checked as boolean }))
+                      }
+                    />
+                    <Label htmlFor="radio" className="text-sm font-normal cursor-pointer">
+                      Battery-powered or hand-crank radio
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="whistle"
+                      checked={emergencyKitItems.whistle}
+                      onCheckedChange={(checked) =>
+                        setEmergencyKitItems(prev => ({ ...prev, whistle: checked as boolean }))
+                      }
+                    />
+                    <Label htmlFor="whistle" className="text-sm font-normal cursor-pointer">
+                      Whistle (to signal for help)
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="dustMask"
+                      checked={emergencyKitItems.dustMask}
+                      onCheckedChange={(checked) =>
+                        setEmergencyKitItems(prev => ({ ...prev, dustMask: checked as boolean }))
+                      }
+                    />
+                    <Label htmlFor="dustMask" className="text-sm font-normal cursor-pointer">
+                      Dust mask
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="plasticSheeting"
+                      checked={emergencyKitItems.plasticSheeting}
+                      onCheckedChange={(checked) =>
+                        setEmergencyKitItems(prev => ({ ...prev, plasticSheeting: checked as boolean }))
+                      }
+                    />
+                    <Label htmlFor="plasticSheeting" className="text-sm font-normal cursor-pointer">
+                      Plastic sheeting and duct tape
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="canOpener"
+                      checked={emergencyKitItems.canOpener}
+                      onCheckedChange={(checked) =>
+                        setEmergencyKitItems(prev => ({ ...prev, canOpener: checked as boolean }))
+                      }
+                    />
+                    <Label htmlFor="canOpener" className="text-sm font-normal cursor-pointer">
+                      Manual can opener
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="localMaps"
+                      checked={emergencyKitItems.localMaps}
+                      onCheckedChange={(checked) =>
+                        setEmergencyKitItems(prev => ({ ...prev, localMaps: checked as boolean }))
+                      }
+                    />
+                    <Label htmlFor="localMaps" className="text-sm font-normal cursor-pointer">
+                      Local maps
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="cellPhone"
+                      checked={emergencyKitItems.cellPhone}
+                      onCheckedChange={(checked) =>
+                        setEmergencyKitItems(prev => ({ ...prev, cellPhone: checked as boolean }))
+                      }
+                    />
+                    <Label htmlFor="cellPhone" className="text-sm font-normal cursor-pointer">
+                      Cell phone with charger
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="cash"
+                      checked={emergencyKitItems.cash}
+                      onCheckedChange={(checked) =>
+                        setEmergencyKitItems(prev => ({ ...prev, cash: checked as boolean }))
+                      }
+                    />
+                    <Label htmlFor="cash" className="text-sm font-normal cursor-pointer">
+                      Cash or traveler's checks
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="importantDocuments"
+                      checked={emergencyKitItems.importantDocuments}
+                      onCheckedChange={(checked) =>
+                        setEmergencyKitItems(prev => ({ ...prev, importantDocuments: checked as boolean }))
+                      }
+                    />
+                    <Label htmlFor="importantDocuments" className="text-sm font-normal cursor-pointer">
+                      Important documents (copies)
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="warmClothing"
+                      checked={emergencyKitItems.warmClothing}
+                      onCheckedChange={(checked) =>
+                        setEmergencyKitItems(prev => ({ ...prev, warmClothing: checked as boolean }))
+                      }
+                    />
+                    <Label htmlFor="warmClothing" className="text-sm font-normal cursor-pointer">
+                      Warm clothing and blankets
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="tools"
+                      checked={emergencyKitItems.tools}
+                      onCheckedChange={(checked) =>
+                        setEmergencyKitItems(prev => ({ ...prev, tools: checked as boolean }))
+                      }
+                    />
+                    <Label htmlFor="tools" className="text-sm font-normal cursor-pointer">
+                      Basic tools (wrench, pliers)
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="sanitation"
+                      checked={emergencyKitItems.sanitation}
+                      onCheckedChange={(checked) =>
+                        setEmergencyKitItems(prev => ({ ...prev, sanitation: checked as boolean }))
+                      }
+                    />
+                    <Label htmlFor="sanitation" className="text-sm font-normal cursor-pointer">
+                      Sanitation and personal hygiene items
+                    </Label>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -1250,26 +1240,7 @@ export default function HomePage() {
               
               {/* Action buttons */}
               <div className="flex gap-2">
-                {isUserTracker && selectedPin.status === "pending" && (
-                  <>
-                    <Button
-                      onClick={() => handleConfirmPin(selectedPin.id)}
-                      className="flex-1"
-                    >
-                      <Check className="w-4 h-4 mr-2" />
-                      Confirm
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => handleDenyPin(selectedPin.id)}
-                      className="flex-1"
-                    >
-                      <X className="w-4 h-4 mr-2" />
-                      Deny
-                    </Button>
-                  </>
-                )}
-
+                
                 {userRole === "supply_volunteer" &&
                   selectedPin.status === "confirmed" &&
                   selectedPin.type === "damaged" && (
@@ -1277,10 +1248,10 @@ export default function HomePage() {
                       onClick={() => handleMarkCompleted(selectedPin.id)}
                       className="w-full"
                     >
-                      <Check className="w-4 h-4 mr-2" />
-                      Mark Delivered
-                    </Button>
-                  )}
+                    <Check className="w-4 h-4 mr-2" />
+                    Mark Delivered
+                  </Button>
+                )}
               </div>
             </div>
           </DialogContent>
@@ -1288,7 +1259,7 @@ export default function HomePage() {
       )}
 
       {/* Pin List Dialog for Tracker Volunteers */}
-      {isUserTracker && (
+      {userRole === "tracking_volunteer" && (
         <Dialog open={showPinListDialog} onOpenChange={setShowPinListDialog}>
           <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
             <DialogHeader>
@@ -1316,7 +1287,7 @@ export default function HomePage() {
                               <Shield className="w-4 h-4 text-green-500" />
                             )}
                             <span className="font-medium">{pin.type === "damaged" ? "Damaged Location" : "Safe Zone"}</span>
-                          </div>
+    </div>
                           <p className="text-sm text-gray-600 mb-2">{pin.description}</p>
                           <div className="flex items-center gap-4 text-xs text-gray-500">
                             <span>Phone: {pin.phone}</span>
@@ -1338,7 +1309,7 @@ export default function HomePage() {
       )}
 
       {/* Confirm Pin Dialog */}
-      {isUserTracker && pinToConfirm && (
+      {userRole === "tracking_volunteer" && pinToConfirm && (
         <Dialog open={showConfirmPinDialog} onOpenChange={setShowConfirmPinDialog}>
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
@@ -1371,54 +1342,200 @@ export default function HomePage() {
                 </div>
               </div>
 
-              {/* Items from Database */}
+              {/* Item Checkboxes */}
               <div className="space-y-3">
-                <Label className="text-sm font-medium">Select Items Needed</Label>
+                <Label className="text-sm font-medium">Required Items</Label>
                 
-                {availableItems.length > 0 ? (
-                  availableItems.map((item) => (
-                    <div key={item.id} className="flex items-center gap-3 p-3 border rounded-lg">
-                      <input
-                        type="checkbox"
-                        id={`item-${item.id}`}
-                        checked={selectedItems.has(item.id)}
-                        onChange={() => handleItemToggle(item.id, 10)}
-                        className="w-4 h-4"
-                      />
-                      <Label htmlFor={`item-${item.id}`} className="flex-1 cursor-pointer">
-                        {item.name} <span className="text-xs text-gray-500">({item.unit})</span>
-                      </Label>
-                      
-                      {selectedItems.has(item.id) && (
-                        <div className="flex items-center gap-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleItemQuantityChange(item.id, Math.max(0, (selectedItems.get(item.id) || 0) - 1))}
-                            disabled={(selectedItems.get(item.id) || 0) === 0}
-                          >
-                            -
-                          </Button>
-                          <span className="w-12 text-center">{selectedItems.get(item.id) || 0}</span>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleItemQuantityChange(item.id, (selectedItems.get(item.id) || 0) + 1)}
-                          >
-                            +
-                          </Button>
-                        </div>
-                      )}
+                {/* People Hurt */}
+                <div className="flex items-center gap-3 p-3 border rounded-lg">
+                  <input
+                    type="checkbox"
+                    checked={itemQuantities.peopleHurt.checked}
+                    onChange={(e) => handleItemCheckboxChange("peopleHurt", e.target.checked)}
+                    className="w-4 h-4"
+                  />
+                  <Label className="flex-1 cursor-pointer">People Hurt</Label>
+                  {itemQuantities.peopleHurt.checked && (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleQuantityChange("peopleHurt", -1)}
+                        disabled={itemQuantities.peopleHurt.quantity === 0}
+                      >
+                        -
+                      </Button>
+                      <span className="w-12 text-center">{itemQuantities.peopleHurt.quantity}</span>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleQuantityChange("peopleHurt", 1)}
+                      >
+                        +
+                      </Button>
                     </div>
-                  ))
-                ) : (
-                  <p className="text-sm text-gray-500 text-center py-4">No items available</p>
-                )}
+                  )}
+                </div>
+
+                {/* Food Packs */}
+                <div className="flex items-center gap-3 p-3 border rounded-lg">
+                  <input
+                    type="checkbox"
+                    checked={itemQuantities.foodPacks.checked}
+                    onChange={(e) => handleItemCheckboxChange("foodPacks", e.target.checked)}
+                    className="w-4 h-4"
+                  />
+                  <Label className="flex-1 cursor-pointer">Food Packs</Label>
+                  {itemQuantities.foodPacks.checked && (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleQuantityChange("foodPacks", -1)}
+                        disabled={itemQuantities.foodPacks.quantity === 0}
+                      >
+                        -
+                      </Button>
+                      <span className="w-12 text-center">{itemQuantities.foodPacks.quantity}</span>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleQuantityChange("foodPacks", 1)}
+                      >
+                        +
+                      </Button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Water Bottles */}
+                <div className="flex items-center gap-3 p-3 border rounded-lg">
+                  <input
+                    type="checkbox"
+                    checked={itemQuantities.waterBottles.checked}
+                    onChange={(e) => handleItemCheckboxChange("waterBottles", e.target.checked)}
+                    className="w-4 h-4"
+                  />
+                  <Label className="flex-1 cursor-pointer">Water Bottles</Label>
+                  {itemQuantities.waterBottles.checked && (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleQuantityChange("waterBottles", -1)}
+                        disabled={itemQuantities.waterBottles.quantity === 0}
+                      >
+                        -
+                      </Button>
+                      <span className="w-12 text-center">{itemQuantities.waterBottles.quantity}</span>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleQuantityChange("waterBottles", 1)}
+                      >
+                        +
+                      </Button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Medicine Box */}
+                <div className="flex items-center gap-3 p-3 border rounded-lg">
+                  <input
+                    type="checkbox"
+                    checked={itemQuantities.medicineBox.checked}
+                    onChange={(e) => handleItemCheckboxChange("medicineBox", e.target.checked)}
+                    className="w-4 h-4"
+                  />
+                  <Label className="flex-1 cursor-pointer">Medicine Box</Label>
+                  {itemQuantities.medicineBox.checked && (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleQuantityChange("medicineBox", -1)}
+                        disabled={itemQuantities.medicineBox.quantity === 0}
+                      >
+                        -
+                      </Button>
+                      <span className="w-12 text-center">{itemQuantities.medicineBox.quantity}</span>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleQuantityChange("medicineBox", 1)}
+                      >
+                        +
+                      </Button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Clothes Packs */}
+                <div className="flex items-center gap-3 p-3 border rounded-lg">
+                  <input
+                    type="checkbox"
+                    checked={itemQuantities.clothesPacks.checked}
+                    onChange={(e) => handleItemCheckboxChange("clothesPacks", e.target.checked)}
+                    className="w-4 h-4"
+                  />
+                  <Label className="flex-1 cursor-pointer">Clothes Packs</Label>
+                  {itemQuantities.clothesPacks.checked && (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleQuantityChange("clothesPacks", -1)}
+                        disabled={itemQuantities.clothesPacks.quantity === 0}
+                      >
+                        -
+                      </Button>
+                      <span className="w-12 text-center">{itemQuantities.clothesPacks.quantity}</span>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleQuantityChange("clothesPacks", 1)}
+                      >
+                        +
+                      </Button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Blankets */}
+                <div className="flex items-center gap-3 p-3 border rounded-lg">
+                  <input
+                    type="checkbox"
+                    checked={itemQuantities.blankets.checked}
+                    onChange={(e) => handleItemCheckboxChange("blankets", e.target.checked)}
+                    className="w-4 h-4"
+                  />
+                  <Label className="flex-1 cursor-pointer">Blankets</Label>
+                  {itemQuantities.blankets.checked && (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleQuantityChange("blankets", -1)}
+                        disabled={itemQuantities.blankets.quantity === 0}
+                      >
+                        -
+                      </Button>
+                      <span className="w-12 text-center">{itemQuantities.blankets.quantity}</span>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleQuantityChange("blankets", 1)}
+                      >
+                        +
+                      </Button>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Confirm Button */}
               <div className="flex gap-2 pt-4 border-t">
-                <Button onClick={handleConfirmPinWithItems} className="flex-1">
+                <Button onClick={handleConfirmPin} className="flex-1">
                   <Check className="w-4 h-4 mr-2" />
                   Confirm Pin
                 </Button>
