@@ -167,6 +167,7 @@ CREATE TABLE public.safety_modules (
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT safety_modules_pkey PRIMARY KEY (id)
 );
+
 CREATE TABLE public.user_modules (
   id uuid NOT NULL DEFAULT uuid_generate_v4(),
   user_id uuid NOT NULL,
