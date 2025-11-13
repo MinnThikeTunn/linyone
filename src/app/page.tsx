@@ -180,6 +180,8 @@ export default function HomePage() {
   const markers = useRef<{ [key: string]: mapboxgl.Marker }>({});
   const userMarker = useRef<mapboxgl.Marker | null>(null);
   const tempMarker = useRef<mapboxgl.Marker | null>(null);
+  // Ref to avoid stale closure in map click handler
+  const isSelectingLocationRef = useRef(false);
 
   // Type-safe user role check
   const userRole = (user as User)?.role;
@@ -298,7 +300,7 @@ export default function HomePage() {
 
         // Handle map click for selecting new pin location
         map.current.on("click", (e) => {
-          if (isSelectingLocation) {
+          if (isSelectingLocationRef.current) {
             const { lng, lat } = e.lngLat;
             setNewPinLocation({ lat, lng });
 
@@ -353,6 +355,15 @@ export default function HomePage() {
     };
   }, []);
 
+  // Keep ref in sync and visually indicate selection mode
+  useEffect(() => {
+    isSelectingLocationRef.current = isSelectingLocation;
+    if (map.current) {
+      const canvas = map.current.getCanvas();
+      canvas.style.cursor = isSelectingLocation ? "crosshair" : "";
+    }
+  }, [isSelectingLocation]);
+
   // Debounced AI suggestion for Add Pin dialog based on description
   useEffect(() => {
     if (!showPinDialog) return;
@@ -365,7 +376,8 @@ export default function HomePage() {
     const handle = setTimeout(async () => {
       setAiLoadingAdd(true);
       setAiErrorAdd(null);
-      const s = await analyzePin({ description: desc, imageBase64: aiAddImageB64, imageMime: aiAddImageMime });
+      const allowed = availableItems.map((it) => it.name);
+      const s = await analyzePin({ description: desc, imageBase64: aiAddImageB64, imageMime: aiAddImageMime, allowedItems: allowed });
       if (!s) setAiErrorAdd("No suggestions");
       setAiSuggestAdd(s);
       setAiLoadingAdd(false);
@@ -375,7 +387,7 @@ export default function HomePage() {
       }
     }, 600);
     return () => clearTimeout(handle);
-  }, [pinDescription, showPinDialog, aiAddImageB64, aiAddImageMime, isUserTracker, trackerSelectedItems.size]);
+  }, [pinDescription, showPinDialog, aiAddImageB64, aiAddImageMime, isUserTracker, trackerSelectedItems.size, availableItems]);
 
   // AI suggestion for Confirm Pin dialog when opened
   useEffect(() => {
@@ -390,7 +402,8 @@ export default function HomePage() {
     (async () => {
       setAiLoadingConfirm(true);
       setAiErrorConfirm(null);
-      const s = await analyzePin({ description: desc, imageBase64: aiConfirmImageB64, imageMime: aiConfirmImageMime });
+      const allowed = availableItems.map((it) => it.name);
+      const s = await analyzePin({ description: desc, imageBase64: aiConfirmImageB64, imageMime: aiConfirmImageMime, allowedItems: allowed });
       if (!cancelled) {
         if (!s) setAiErrorConfirm("No suggestions");
         setAiSuggestConfirm(s || null);
@@ -404,7 +417,7 @@ export default function HomePage() {
     return () => {
       cancelled = true;
     };
-  }, [showConfirmPinDialog, pinToConfirm, aiConfirmImageB64, aiConfirmImageMime, selectedItems.size]);
+  }, [showConfirmPinDialog, pinToConfirm, aiConfirmImageB64, aiConfirmImageMime, selectedItems.size, availableItems]);
 
   // Convert Add Pin selected image to base64 for AI (once per file)
   useEffect(() => {
@@ -1072,7 +1085,7 @@ export default function HomePage() {
                       </Button>
                     </DialogTrigger>
                   )}
-                  <DialogContent className="sm:max-w-md">
+                  <DialogContent className="sm:max-w-md max-h-[85vh] overflow-y-auto my-6">
                     <DialogHeader>
                       <DialogTitle>{t("map.title")}</DialogTitle>
                     </DialogHeader>
@@ -1661,7 +1674,7 @@ export default function HomePage() {
       {/* Confirm Pin Dialog */}
       {isUserTracker && pinToConfirm && (
         <Dialog open={showConfirmPinDialog} onOpenChange={setShowConfirmPinDialog}>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto my-6">
             <DialogHeader>
               <DialogTitle>Confirm Pin Details</DialogTitle>
             </DialogHeader>

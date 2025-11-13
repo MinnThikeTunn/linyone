@@ -8,7 +8,26 @@ type Suggestion = {
   confidence: number;
 };
 
-function heuristicAnalyze(description: string): Suggestion {
+function toCanonicalAllowed(name: string, allowed?: string[]): string | null {
+  if (!allowed || allowed.length === 0) return name;
+  const ln = name.toLowerCase().trim();
+  // exact match
+  for (const a of allowed) if (a.toLowerCase() === ln) return a;
+  // contains/substring match
+  const scored = allowed
+    .map((a) => {
+      const la = a.toLowerCase();
+      let score = 0;
+      if (la.includes(ln) || ln.includes(la)) score += 2;
+      // basic stem-ish checks
+      if (ln.replace(/s$/,"") === la.replace(/s$/,"")) score += 1;
+      return { a, score };
+    })
+    .sort((x, y) => y.score - x.score);
+  return scored[0]?.score ? scored[0].a : null;
+}
+
+function heuristicAnalyze(description: string, allowed?: string[]): Suggestion {
   const text = description.toLowerCase();
 
   let severity = 0.3;
@@ -112,11 +131,12 @@ function heuristicAnalyze(description: string): Suggestion {
 
   if (categories.length === 0) categories.push("general");
 
-  // Merge duplicate items by name
+  // Map to allowed names and merge
   const merged: Record<string, number> = {};
   for (const it of items) {
-    const key = it.name.toLowerCase();
-    merged[key] = (merged[key] || 0) + it.qty;
+    const canon = toCanonicalAllowed(it.name, allowed);
+    if (!canon) continue;
+    merged[canon] = (merged[canon] || 0) + it.qty;
   }
   const mergedItems = Object.entries(merged).map(([name, qty]) => ({ name, qty }));
 
@@ -125,10 +145,11 @@ function heuristicAnalyze(description: string): Suggestion {
 
 export async function POST(req: Request) {
   try {
-    const { description, imageBase64, imageMime } = (await req.json()) as {
+    const { description, imageBase64, imageMime, allowedItems } = (await req.json()) as {
       description?: string;
       imageBase64?: string;
       imageMime?: string;
+      allowedItems?: string[];
     };
     if (!description || !description.trim()) {
       return NextResponse.json({ error: "Description is required" }, { status: 400 });
@@ -139,6 +160,13 @@ export async function POST(req: Request) {
 
     if (apiKey) {
       try {
+        const allowedSection = Array.isArray(allowedItems) && allowedItems.length
+          ? [
+              "Allowed item names (must use only these):",
+              ...allowedItems.map((n) => `- ${n}`),
+            ].join("\n")
+          : "";
+
         const prompt = [
           "You are an emergency triage assistant.",
           "Return STRICT JSON only (no prose).",
@@ -150,9 +178,10 @@ export async function POST(req: Request) {
           "}",
           "Rules:",
           "- categories from: [structural, medical, flooding, fire, general, critical] (choose any).",
-          "- items use short names like: Water Bottles, First Aid, Medicine Box, Blankets.",
+          "- items must use names from the allowed list only; if none apply, return an empty items array.",
           "- qty must be positive integers; max 10 items.",
           "- If uncertain, still return best-guess with reasonable qty.",
+          allowedSection,
           "Description:",
           description,
           "JSON only:",
@@ -188,15 +217,26 @@ export async function POST(req: Request) {
               const raw = jsonStart >= 0 && jsonEnd >= 0 ? text.slice(jsonStart, jsonEnd + 1) : text;
               const parsed = JSON.parse(raw) as Suggestion;
               // Clamp and normalize
+              let items: SuggestionItem[] = Array.isArray(parsed.items)
+                ? parsed.items
+                    .map((it: any) => ({ name: String(it.name || ""), qty: Math.max(1, Number(it.qty) || 1) }))
+                    .filter((it: any) => it.name && it.qty)
+                    .slice(0, 10)
+                : [];
+              // Enforce allowed list mapping
+              if (Array.isArray(allowedItems) && allowedItems.length) {
+                const mapped: Record<string, number> = {};
+                for (const it of items) {
+                  const canon = toCanonicalAllowed(it.name, allowedItems);
+                  if (!canon) continue;
+                  mapped[canon] = (mapped[canon] || 0) + it.qty;
+                }
+                items = Object.entries(mapped).map(([name, qty]) => ({ name, qty }));
+              }
               const suggestion: Suggestion = {
                 severity: Math.min(1, Math.max(0, parsed.severity ?? 0.5)),
                 categories: Array.isArray(parsed.categories) ? parsed.categories.slice(0, 5) : ["general"],
-                items: Array.isArray(parsed.items)
-                  ? parsed.items
-                      .map((it: any) => ({ name: String(it.name || ""), qty: Math.max(1, Number(it.qty) || 1) }))
-                      .filter((it: any) => it.name && it.qty)
-                      .slice(0, 10)
-                  : [],
+                items,
                 confidence: Math.min(1, Math.max(0, parsed.confidence ?? 0.6)),
               };
               return NextResponse.json({ suggestion });
@@ -210,7 +250,7 @@ export async function POST(req: Request) {
       }
     }
 
-    const suggestion = heuristicAnalyze(description);
+    const suggestion = heuristicAnalyze(description, allowedItems);
     return NextResponse.json({ suggestion });
   } catch (e) {
     return NextResponse.json({ error: "Failed to analyze" }, { status: 500 });
