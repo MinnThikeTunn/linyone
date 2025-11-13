@@ -185,6 +185,15 @@ export default function HomePage() {
   const isSelectingLocationRef = useRef(false);
   // Route drawing refs
   const routeIds = useRef({ source: "tracker-route", layer: "tracker-route-layer" });
+  const routePopup = useRef<mapboxgl.Popup | null>(null);
+  
+  const formatDuration = (seconds: number) => {
+    const mins = Math.round(seconds / 60);
+    if (mins < 60) return `${mins} min`;
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return m > 0 ? `${h} h ${m} m` : `${h} h`;
+  };
   const [activeRoutePinId, setActiveRoutePinId] = useState<string | null>(null);
 
   // Heuristic: decide if an AI suggestion looks like a rescue request
@@ -405,6 +414,10 @@ export default function HomePage() {
     if (map.current.getSource(source)) {
       map.current.removeSource(source);
     }
+    if (routePopup.current) {
+      routePopup.current.remove();
+      routePopup.current = null;
+    }
     setActiveRoutePinId(null);
   };
 
@@ -481,27 +494,118 @@ export default function HomePage() {
         if (res.ok) {
           const json = await res.json();
           const coords: [number, number][] | undefined = json?.routes?.[0]?.geometry?.coordinates;
+          const distanceMeters: number | undefined = json?.routes?.[0]?.distance;
+          const durationSeconds: number | undefined = json?.routes?.[0]?.duration;
           if (coords && coords.length) {
             drawRoute(coords);
             setActiveRoutePinId(pin.id);
+            // Place a tiny popup around the midpoint with distance and duration
+            const midIdx = Math.floor(coords.length / 2);
+            const mid = coords[midIdx];
+            if (map.current && mid) {
+              const distKm = distanceMeters ? distanceMeters / 1000 : undefined;
+              const html = `
+                <div style="min-width:220px;max-width:280px;padding:8px 10px;border-radius:10px;background:#ffffff;color:#0f172a;border:1px solid #e5e7eb;box-shadow:0 8px 20px rgba(0,0,0,0.12);font-size:12px;line-height:1.2;">
+                  <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+                    <span style="display:inline-block;width:6px;height:6px;background:#2563eb;border-radius:9999px;"></span>
+                    <span style="font-weight:600;">Route Info</span>
+                  </div>
+                  <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+                    <div><strong>Distance:</strong> ${distKm !== undefined ? distKm.toFixed(2) : "-"} km</div>
+                    <div><strong>ETA:</strong> ${durationSeconds !== undefined ? formatDuration(durationSeconds) : "-"}</div>
+                  </div>
+                </div>`;
+              if (routePopup.current) {
+                routePopup.current.setLngLat(mid as any).setHTML(html).addTo(map.current);
+              } else {
+                routePopup.current = new mapboxgl.Popup({ closeButton: true, closeOnClick: false, maxWidth: "260px", anchor: "bottom", offset: 12 })
+                  .setLngLat(mid as any)
+                  .setHTML(html)
+                  .addTo(map.current);
+              }
+            }
             return;
           }
         }
       }
       // Fallback: draw straight line
-      drawRoute([
+      const fallbackCoords: [number, number][] = [
         [userLocation.lng, userLocation.lat],
         [pin.lng, pin.lat],
-      ]);
+      ];
+      drawRoute(fallbackCoords);
       setActiveRoutePinId(pin.id);
+      // Compute haversine distance and an approximate duration (40km/h)
+      const toRad = (d: number) => (d * Math.PI) / 180;
+      const R = 6371; // km
+      const dLat = toRad(pin.lat - userLocation.lat);
+      const dLon = toRad(pin.lng - userLocation.lng);
+      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(toRad(userLocation.lat)) * Math.cos(toRad(pin.lat)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      const distKm = R * c;
+      const durationSeconds = (distKm / 40) * 3600; // approx driving
+      const mid: [number, number] = [(userLocation.lng + pin.lng) / 2, (userLocation.lat + pin.lat) / 2];
+      if (map.current) {
+        const html = `
+          <div style="min-width:220px;max-width:280px;padding:8px 10px;border-radius:10px;background:#ffffff;color:#0f172a;border:1px solid #e5e7eb;box-shadow:0 8px 20px rgba(0,0,0,0.12);font-size:12px;line-height:1.2;">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+              <span style="display:inline-block;width:6px;height:6px;background:#2563eb;border-radius:9999px;"></span>
+              <span style="font-weight:600;">Route Info</span>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+              <div><strong>Distance:</strong> ${distKm.toFixed(2)} km</div>
+              <div><strong>ETA:</strong> ~${formatDuration(durationSeconds)}</div>
+            </div>
+          </div>`;
+        if (routePopup.current) {
+          routePopup.current.setLngLat(mid as any).setHTML(html).addTo(map.current);
+        } else {
+          routePopup.current = new mapboxgl.Popup({ closeButton: true, closeOnClick: false, maxWidth: "260px", anchor: "bottom", offset: 12 })
+            .setLngLat(mid as any)
+            .setHTML(html)
+            .addTo(map.current);
+        }
+      }
     } catch (e) {
       console.warn("Failed to draw route, drawing straight line", e);
       if (userLocation) {
-        drawRoute([
+        const fallbackCoords: [number, number][] = [
           [userLocation.lng, userLocation.lat],
           [pin.lng, pin.lat],
-        ]);
+        ];
+        drawRoute(fallbackCoords);
         setActiveRoutePinId(pin.id);
+        // Same fallback metrics
+        const toRad = (d: number) => (d * Math.PI) / 180;
+        const R = 6371; // km
+        const dLat = toRad(pin.lat - userLocation.lat);
+        const dLon = toRad(pin.lng - userLocation.lng);
+        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(toRad(userLocation.lat)) * Math.cos(toRad(pin.lat)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        const distKm = R * c;
+        const durationSeconds = (distKm / 40) * 3600; // approx driving
+        const mid: [number, number] = [(userLocation.lng + pin.lng) / 2, (userLocation.lat + pin.lat) / 2];
+        if (map.current) {
+          const html = `
+            <div style="min-width:220px;max-width:280px;padding:8px 10px;border-radius:10px;background:#ffffff;color:#0f172a;border:1px solid #e5e7eb;box-shadow:0 8px 20px rgba(0,0,0,0.12);font-size:12px;line-height:1.2;">
+              <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+                <span style="display:inline-block;width:6px;height:6px;background:#2563eb;border-radius:9999px;"></span>
+                <span style="font-weight:600;">Route Info</span>
+              </div>
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+                <div><strong>Distance:</strong> ${distKm.toFixed(2)} km</div>
+                <div><strong>ETA:</strong> ~${formatDuration(durationSeconds)}</div>
+              </div>
+            </div>`;
+          if (routePopup.current) {
+            routePopup.current.setLngLat(mid as any).setHTML(html).addTo(map.current);
+          } else {
+            routePopup.current = new mapboxgl.Popup({ closeButton: true, closeOnClick: false, maxWidth: "260px", anchor: "bottom", offset: 12 })
+              .setLngLat(mid as any)
+              .setHTML(html)
+              .addTo(map.current);
+          }
+        }
       }
     }
   };
@@ -1231,7 +1335,7 @@ export default function HomePage() {
           {/* Map Area */}
           <div className="lg:col-span-2">
             {/* Header */}
-            <div className="max-w-7xl mx-auto py-4">
+            <div className="max-w-7xl mx-auto pb-4">
               <div className={`flex items-center gap-2 w-full ${isUserTracker ? "flex-wrap" : ""}`}>
                 <Button
                   variant="outline"
@@ -1804,6 +1908,37 @@ export default function HomePage() {
               </DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
+              <div className="flex gap-2 justify-end">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => showRouteToPin(selectedPin)}
+                >
+                  <Navigation className="w-3 h-3 mr-1" /> Show Route
+                </Button>
+                {activeRoutePinId === selectedPin.id && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => clearRoute()}
+                  >
+                    Clear Route
+                  </Button>
+                )}
+                {isUserTracker && selectedPin.status === "pending" && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setPinToConfirm(selectedPin);
+                      setShowConfirmPinDialog(true);
+                      setSelectedPin(null);
+                    }}
+                  >
+                    Select
+                  </Button>
+                )}
+              </div>
               <div>
                 <Badge className={`${getStatusColor(selectedPin.status)}`}>
                   <div className="flex items-center gap-1">

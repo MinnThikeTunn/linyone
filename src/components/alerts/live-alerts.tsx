@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import Ably from 'ably'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { AlertTriangle, Droplets, Wind, MapPin, Clock, Navigation } from 'lucide-react'
+import { AlertTriangle, Droplets, Wind, MapPin, Clock, Navigation, Globe } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import EventMapModal from './event-map-modal'
 
@@ -32,7 +32,9 @@ function severityFromMagnitude(mag: number | null | undefined): 'high' | 'medium
 }
 
 function formatTimeAgo(time: number) {
-  const diffMs = Date.now() - time
+  const now = Date.now()
+  // Guard against bad timestamps (seconds or strings handled elsewhere)
+  const diffMs = Math.max(0, now - time)
   if (diffMs < 1000) return 'just now'
   const totalSeconds = Math.floor(diffMs / 1000)
   const days = Math.floor(totalSeconds / 86400)
@@ -75,6 +77,31 @@ export function LiveAlerts({ className }: { className?: string }) {
   const seenIdsRef = useRef<Set<string>>(new Set())
   const [status, setStatus] = useState<'idle' | 'connecting' | 'live' | 'error'>('idle')
   const [selectedForMap, setSelectedForMap] = useState<DisasterEvent | null>(null)
+  const [region, setRegion] = useState<'global' | 'myanmar'>(() => {
+    if (typeof window === 'undefined') return 'global'
+    try {
+      return (localStorage.getItem('alerts_region') as 'global' | 'myanmar') || 'global'
+    } catch { return 'global' }
+  })
+
+  useEffect(() => {
+    try { localStorage.setItem('alerts_region', region) } catch {}
+  }, [region])
+
+  function normalizeTime(input: any): number {
+    try {
+      if (typeof input === 'string') {
+        const parsed = Date.parse(input)
+        if (!Number.isNaN(parsed)) return parsed
+      }
+      if (typeof input === 'number') {
+        // If value looks like seconds, convert to ms
+        if (input < 1e12) return input * 1000
+        return input
+      }
+    } catch {}
+    return Date.now()
+  }
 
   async function sendTestEqAlert() {
     try {
@@ -137,12 +164,25 @@ export function LiveAlerts({ className }: { className?: string }) {
         ably.connection.on('connected', () => setStatus('live'))
         ably.connection.on('failed', () => setStatus('error'))
         const channel = ably.channels.get(process.env.NEXT_PUBLIC_ABLY_CHANNEL || 'earthquakes-myanmar')
+        const normalizeTime = (input: any): number => {
+          try {
+            if (typeof input === 'string') {
+              const parsed = Date.parse(input)
+              if (!Number.isNaN(parsed)) return parsed
+            }
+            if (typeof input === 'number') {
+              return input < 1e12 ? input * 1000 : input
+            }
+          } catch {}
+          return Date.now()
+        }
         channel.subscribe('earthquake', (msg) => {
           try {
             const payload: any = msg.data || {}
             const id: string = payload.id || msg.id || Math.random().toString(36).slice(2)
             if (seenIdsRef.current.has(id)) return
             seenIdsRef.current.add(id)
+            const t = normalizeTime(payload.time)
             const ev: DisasterEvent = {
               id,
               source: 'usgs',
@@ -151,7 +191,7 @@ export function LiveAlerts({ className }: { className?: string }) {
               description: payload.place,
               magnitude: payload.magnitude,
               place: payload.place,
-              time: payload.time || Date.now(),
+              time: t,
               url: payload.url,
               coordinates: payload.coordinates,
               severity: severityFromMagnitude(payload.magnitude),
@@ -160,6 +200,32 @@ export function LiveAlerts({ className }: { className?: string }) {
             setEvents((prev) => [ev, ...prev].sort((a, b) => b.time - a.time).slice(0, 200))
           } catch (err) {
             // swallow parse errors
+          }
+        })
+        channel.subscribe('flood', (msg) => {
+          try {
+            const payload: any = msg.data || {}
+            const id: string = payload.id || msg.id || Math.random().toString(36).slice(2)
+            if (seenIdsRef.current.has(id)) return
+            seenIdsRef.current.add(id)
+            const t = normalizeTime(payload.time)
+            const ev: DisasterEvent = {
+              id,
+              source: 'flood',
+              type: 'flood',
+              title: payload.title || `Flood alert — ${payload.place || 'Unknown'}`,
+              description: payload.description,
+              magnitude: payload.magnitude,
+              place: payload.place,
+              time: t,
+              url: payload.url,
+              coordinates: payload.coordinates,
+              severity: payload.severity || 'medium',
+              location: payload.location || payload.place,
+            }
+            setEvents((prev) => [ev, ...prev].sort((a, b) => b.time - a.time).slice(0, 200))
+          } catch (err) {
+            // ignore
           }
         })
       } catch (err) {
@@ -193,6 +259,7 @@ export function LiveAlerts({ className }: { className?: string }) {
           if (!id || seenIdsRef.current.has(id)) continue
           seenIdsRef.current.add(id)
           const mag = feature.properties?.mag ?? null
+          const t = normalizeTime(feature.properties?.time)
           const ev: DisasterEvent = {
             id,
             source: 'usgs',
@@ -201,7 +268,7 @@ export function LiveAlerts({ className }: { className?: string }) {
             description: feature.properties?.place,
             magnitude: mag,
             place: feature.properties?.place,
-            time: feature.properties?.time || Date.now(),
+            time: t,
             url: feature.properties?.url,
             coordinates: feature.geometry?.coordinates || [],
             severity: severityFromMagnitude(mag),
@@ -349,9 +416,28 @@ export function LiveAlerts({ className }: { className?: string }) {
   }, [])
 
   const earthquakes = events.filter(e => e.type === 'earthquake').sort((a,b)=> b.time - a.time)
-  const lastTen = earthquakes.slice(0,10)
   const floods = events.filter(e => e.type === 'flood').sort((a,b)=> b.time - a.time)
-  const floodsLastTen = floods.slice(0,10)
+
+  function isInMyanmar(e: DisasterEvent): boolean {
+    try {
+      if (e.coordinates && e.coordinates.length >= 2) {
+        const lon = Number(e.coordinates[0])
+        const lat = Number(e.coordinates[1])
+        // Myanmar approx bounding box
+        const inBox = lat >= 9.5 && lat <= 28.6 && lon >= 92.2 && lon <= 101.2
+        if (inBox) return true
+      }
+      const text = `${e.location || ''} ${e.place || ''}`.toLowerCase()
+      if (!text) return false
+      const keywords = ['myanmar', 'yangon', 'mandalay', 'nay pyi taw', 'naypyidaw', 'bago', 'sagaing', 'ayeyarwady', 'mon', 'shan', 'kachin', 'kayin', 'magway', 'tanintharyi', 'rakhine']
+      return keywords.some(k => text.includes(k))
+    } catch { return false }
+  }
+
+  const earthquakesFiltered = region === 'global' ? earthquakes : earthquakes.filter(isInMyanmar)
+  const floodsFiltered = region === 'global' ? floods : floods.filter(isInMyanmar)
+  const lastTen = earthquakesFiltered.slice(0,10)
+  const floodsLastTen = floodsFiltered.slice(0,10)
 
   const eqHigh = lastTen.filter(e => e.severity === 'high').length
   const eqMedium = lastTen.filter(e => e.severity === 'medium').length
@@ -366,10 +452,32 @@ export function LiveAlerts({ className }: { className?: string }) {
 
   return (
     <div className={className}>
-      <div className="flex items-center justify-end mb-3">
-        <Button size="sm" variant="outline" onClick={sendTestEqAlert} title="Broadcast a test earthquake alert">
-          Send Test EQ Alert
-        </Button>
+      <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
+        {/* Region filter */}
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-gray-600">Region:</span>
+          <div className="inline-flex rounded-md border overflow-hidden">
+            <button
+              className={`px-3 py-1.5 text-sm flex items-center gap-1 ${region==='global' ? 'bg-black text-white' : 'bg-white text-gray-700'}`}
+              onClick={() => setRegion('global')}
+              title="Show global alerts"
+            >
+              <Globe className="w-4 h-4" /> Global
+            </button>
+            <button
+              className={`px-3 py-1.5 text-sm flex items-center gap-1 border-l ${region==='myanmar' ? 'bg-black text-white' : 'bg-white text-gray-700'}`}
+              onClick={() => setRegion('myanmar')}
+              title="Show Myanmar alerts"
+            >
+              <MapPin className="w-4 h-4" /> Myanmar
+            </button>
+          </div>
+        </div>
+        <div className="flex items-center justify-end">
+          <Button size="sm" variant="outline" onClick={sendTestEqAlert} title="Broadcast a test earthquake alert">
+            Send Test EQ Alert
+          </Button>
+        </div>
       </div>
       {/* Risk summary cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">

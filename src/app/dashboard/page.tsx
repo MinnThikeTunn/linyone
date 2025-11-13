@@ -34,6 +34,7 @@ import { supabase } from '@/lib/supabase'
 
 import { mockSafetyModules } from "@/data/mockSafetyModules";
 import Link from "next/link";
+import { LiveAlerts } from "@/components/alerts/live-alerts";
 
 interface FamilyMember {
   id: string;
@@ -464,7 +465,9 @@ export default function DashboardPage() {
                   Recent earthquake alerts and safety notifications
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">...</CardContent>
+              <CardContent className="space-y-4">
+                <LiveAlerts />
+              </CardContent>
             </Card>
           </TabsContent>
         </Tabs>
