@@ -30,7 +30,9 @@ import {
   UserPlus,
   Edit,
   Trash2,
-  Warehouse
+  Warehouse,
+  Mail,
+  Phone
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { Input } from '@/components/ui/input'
@@ -41,6 +43,7 @@ import { useLanguage } from '@/hooks/use-language'
 import { useAuth } from '@/hooks/use-auth'
 import { useToast } from '@/hooks/use-toast'
 import { fetchConfirmedPinsForDashboard, acceptHelpRequestItems, checkAndHandleCompletedPin, fetchAggregatedSuppliesByRegion } from '@/services/pins'
+import { fetchVolunteersForOrganization, createVolunteer, updateVolunteer, deleteVolunteer } from '@/services/volunteers'
 
 interface Volunteer {
   id: string
@@ -54,6 +57,9 @@ interface Volunteer {
   assignmentsCompleted: number
   password?: string
   assignment?: string
+  org_member_id?: string
+  user_id?: string
+  type?: 'tracking' | 'normal'
 }
 
 interface RequiredItem {
@@ -255,15 +261,12 @@ export default function OrganizationPage() {
   const [acceptQuantities, setAcceptQuantities] = useState<Record<string, number>>({})
   const [proofImage, setProofImage] = useState<File | null>(null)
   const [showRegisterVolunteer, setShowRegisterVolunteer] = useState(false)
+  const [editingVolunteer, setEditingVolunteer] = useState<Volunteer | null>(null)
   const [newVolunteer, setNewVolunteer] = useState({
     name: '',
     phone: '',
     email: '',
-    role: 'tracking_volunteer' as 'tracking_volunteer' | 'supply_volunteer',
-    location: '',
-    assignment: '',
-    status: 'pending' as 'pending' | 'active',
-    password: ''
+    role: 'tracking_volunteer' as 'tracking_volunteer' | 'supply_volunteer'
   })
   const [showAddSupply, setShowAddSupply] = useState(false)
   const [editingSupply, setEditingSupply] = useState<Supply | null>(null)
@@ -276,6 +279,7 @@ export default function OrganizationPage() {
     expiryDate: '',
     notes: ''
   })
+  const [isLoadingVolunteers, setIsLoadingVolunteers] = useState(false)
 
   // Redirect non-organization users
   useEffect(() => {
@@ -302,6 +306,7 @@ export default function OrganizationPage() {
     const loadAggregatedSupplies = async () => {
       const result = await fetchAggregatedSuppliesByRegion()
       if (result.success && result.supplies) {
+        console.log('✅ Aggregated supplies loaded:', result.supplies)
         setAggregatedSupplies(result.supplies)
       } else {
         console.error('Failed to load aggregated supplies:', result.error)
@@ -309,6 +314,33 @@ export default function OrganizationPage() {
     }
     loadAggregatedSupplies()
   }, [])
+
+  // Load volunteers from database
+  useEffect(() => {
+    const loadVolunteers = async () => {
+      if (!user?.id) return
+      setIsLoadingVolunteers(true)
+      const result = await fetchVolunteersForOrganization(user.id)
+      if (result.success && result.volunteers) {
+        // Transform volunteers to match the Volunteer interface
+        const transformedVolunteers = result.volunteers.map(v => ({
+          ...v,
+          status: v.status as 'active' | 'inactive' | 'pending',
+          role: v.type === 'tracking' ? 'tracking_volunteer' as const : 'supply_volunteer' as const,
+          joinedAt: new Date(),
+          assignmentsCompleted: 0,
+          location: 'Organization',
+          password: undefined,
+          assignment: undefined
+        }))
+        setVolunteers(transformedVolunteers)
+      } else {
+        console.error('Failed to load volunteers:', result.error)
+      }
+      setIsLoadingVolunteers(false)
+    }
+    loadVolunteers()
+  }, [user?.id])
 
   const handleApproveVolunteer = (volunteerId: string) => {
     setVolunteers(volunteers.map(v => 
@@ -322,38 +354,133 @@ export default function OrganizationPage() {
     ))
   }
 
-  const handleRegisterVolunteer = () => {
-    if (!newVolunteer.name || !newVolunteer.phone || !newVolunteer.password || !newVolunteer.location) {
-      alert('Please fill all required fields (Name, Phone, Password, Location)')
+  const handleRegisterVolunteer = async () => {
+    if (!newVolunteer.name || !newVolunteer.phone || !newVolunteer.email) {
+      toast({
+        title: "❌ Error",
+        description: 'Please fill all required fields (Name, Email, Phone)',
+        variant: "destructive",
+      })
       return
     }
 
-    const volunteer: Volunteer = {
-      id: Date.now().toString(),
-      name: newVolunteer.name,
-      email: newVolunteer.email || `${newVolunteer.phone}@volunteer.local`,
-      phone: newVolunteer.phone,
-      role: newVolunteer.role,
-      status: newVolunteer.status,
-      location: newVolunteer.location,
-      joinedAt: new Date(),
-      assignmentsCompleted: 0,
-      password: newVolunteer.password,
-      assignment: newVolunteer.assignment || undefined
+    if (!user?.id) {
+      toast({
+        title: "❌ Error",
+        description: 'Organization ID not found',
+        variant: "destructive",
+      })
+      return
     }
 
-    setVolunteers([...volunteers, volunteer])
+    if (editingVolunteer) {
+      // Update existing volunteer
+      if (!editingVolunteer.user_id) {
+        toast({
+          title: "❌ Error",
+          description: 'User ID not found',
+          variant: "destructive",
+        })
+        return
+      }
+
+      const result = await updateVolunteer(editingVolunteer.user_id, {
+        name: newVolunteer.name,
+        email: newVolunteer.email,
+        phone: newVolunteer.phone,
+        role: newVolunteer.role === 'tracking_volunteer' ? 'tracking' : 'normal'
+      })
+
+      if (result.success) {
+        toast({
+          title: "✅ Success",
+          description: 'Volunteer updated successfully',
+        })
+        setVolunteers(volunteers.map(v => 
+          v.id === editingVolunteer.id 
+            ? { ...v, name: newVolunteer.name, email: newVolunteer.email, phone: newVolunteer.phone, role: newVolunteer.role }
+            : v
+        ))
+        setEditingVolunteer(null)
+      } else {
+        toast({
+          title: "❌ Error",
+          description: result.error || 'Failed to update volunteer',
+          variant: "destructive",
+        })
+      }
+    } else {
+      // Create new volunteer
+      const result = await createVolunteer({
+        name: newVolunteer.name,
+        email: newVolunteer.email,
+        phone: newVolunteer.phone,
+        role: newVolunteer.role === 'tracking_volunteer' ? 'tracking' : 'normal',
+        organizationId: user.id
+      })
+
+      if (result.success && result.volunteer) {
+        toast({
+          title: "✅ Success",
+          description: 'Volunteer registered successfully',
+        })
+        const newVol: Volunteer = {
+          ...result.volunteer,
+          status: 'active' as const,
+          role: newVolunteer.role,
+          joinedAt: new Date(),
+          assignmentsCompleted: 0,
+          location: 'Organization',
+          password: undefined,
+          assignment: undefined
+        }
+        setVolunteers([...volunteers, newVol])
+      } else {
+        toast({
+          title: "❌ Error",
+          description: result.error || 'Failed to register volunteer',
+          variant: "destructive",
+        })
+      }
+    }
+
     setNewVolunteer({
       name: '',
       phone: '',
       email: '',
-      role: 'tracking_volunteer',
-      location: '',
-      assignment: '',
-      status: 'pending',
-      password: ''
+      role: 'tracking_volunteer'
     })
     setShowRegisterVolunteer(false)
+  }
+
+  const handleDeleteVolunteer = async (orgMemberId: string) => {
+    if (!confirm('Are you sure you want to delete this volunteer?')) return
+
+    const result = await deleteVolunteer(orgMemberId)
+    if (result.success) {
+      toast({
+        title: "✅ Success",
+        description: 'Volunteer deleted successfully',
+      })
+      setVolunteers(volunteers.filter(v => v.org_member_id !== orgMemberId))
+    } else {
+      toast({
+        title: "❌ Error",
+        description: result.error || 'Failed to delete volunteer',
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleEditVolunteer = (volunteer: Volunteer) => {
+    setEditingVolunteer(volunteer)
+    setNewVolunteer({
+      name: volunteer.name,
+      phone: volunteer.phone,
+      email: volunteer.email,
+      role: volunteer.role
+    })
+    setShowRegisterVolunteer(true)
   }
 
   const handleAddSupply = () => {
@@ -807,7 +934,7 @@ export default function OrganizationPage() {
                     </DialogTrigger>
                     <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                       <DialogHeader>
-                        <DialogTitle>Register New Volunteer</DialogTitle>
+                        <DialogTitle>{editingVolunteer ? 'Edit Volunteer' : 'Register New Volunteer'}</DialogTitle>
                       </DialogHeader>
                       <div className="space-y-4">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -821,16 +948,7 @@ export default function OrganizationPage() {
                             />
                           </div>
                           <div>
-                            <Label htmlFor="volunteer-phone">Phone Number *</Label>
-                            <Input
-                              id="volunteer-phone"
-                              value={newVolunteer.phone}
-                              onChange={(e) => setNewVolunteer(prev => ({ ...prev, phone: e.target.value }))}
-                              placeholder="+959123456789"
-                            />
-                          </div>
-                          <div>
-                            <Label htmlFor="volunteer-email">Email</Label>
+                            <Label htmlFor="volunteer-email">Email *</Label>
                             <Input
                               id="volunteer-email"
                               type="email"
@@ -840,13 +958,12 @@ export default function OrganizationPage() {
                             />
                           </div>
                           <div>
-                            <Label htmlFor="volunteer-password">Password *</Label>
+                            <Label htmlFor="volunteer-phone">Phone Number *</Label>
                             <Input
-                              id="volunteer-password"
-                              type="password"
-                              value={newVolunteer.password}
-                              onChange={(e) => setNewVolunteer(prev => ({ ...prev, password: e.target.value }))}
-                              placeholder="Enter password"
+                              id="volunteer-phone"
+                              value={newVolunteer.phone}
+                              onChange={(e) => setNewVolunteer(prev => ({ ...prev, phone: e.target.value }))}
+                              placeholder="+959123456789"
                             />
                           </div>
                           <div>
@@ -861,65 +978,36 @@ export default function OrganizationPage() {
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="tracking_volunteer">Tracking Volunteer</SelectItem>
-                                <SelectItem value="supply_volunteer">Supply Volunteer</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div>
-                            <Label htmlFor="volunteer-location">Location *</Label>
-                            <Input
-                              id="volunteer-location"
-                              value={newVolunteer.location}
-                              onChange={(e) => setNewVolunteer(prev => ({ ...prev, location: e.target.value }))}
-                              placeholder="Enter location"
-                            />
-                          </div>
-                          <div>
-                            <Label htmlFor="volunteer-assignment">Assignment</Label>
-                            <Input
-                              id="volunteer-assignment"
-                              value={newVolunteer.assignment}
-                              onChange={(e) => setNewVolunteer(prev => ({ ...prev, assignment: e.target.value }))}
-                              placeholder="Enter assignment details"
-                            />
-                          </div>
-                          <div>
-                            <Label htmlFor="volunteer-status">Status *</Label>
-                            <Select 
-                              value={newVolunteer.status} 
-                              onValueChange={(value: 'pending' | 'active') => 
-                                setNewVolunteer(prev => ({ ...prev, status: value }))
-                              }
-                            >
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="pending">Pending</SelectItem>
-                                <SelectItem value="active">Active</SelectItem>
+                                <SelectItem value="tracking_volunteer">Tracking</SelectItem>
+                                <SelectItem value="supply_volunteer">Normal</SelectItem>
                               </SelectContent>
                             </Select>
                           </div>
                         </div>
                         <div className="flex gap-2 pt-4 border-t">
-                          <Button onClick={handleRegisterVolunteer} className="flex-1">
-                            <UserPlus className="w-4 h-4 mr-2" />
-                            Register Volunteer
+                          <Button onClick={handleRegisterVolunteer} className="flex-1 bg-blue-600 hover:bg-blue-700">
+                            {editingVolunteer ? (
+                              <>
+                                <Edit className="w-4 h-4 mr-2" />
+                                Update Volunteer
+                              </>
+                            ) : (
+                              <>
+                                <UserPlus className="w-4 h-4 mr-2" />
+                                Register Volunteer
+                              </>
+                            )}
                           </Button>
                           <Button 
                             variant="outline"
                             onClick={() => {
                               setShowRegisterVolunteer(false)
+                              setEditingVolunteer(null)
                               setNewVolunteer({
                                 name: '',
                                 phone: '',
                                 email: '',
-                                role: 'tracking_volunteer',
-                                location: '',
-                                assignment: '',
-                                status: 'pending',
-                                password: ''
+                                role: 'tracking_volunteer'
                               })
                             }}
                           >
@@ -932,76 +1020,71 @@ export default function OrganizationPage() {
                 </div>
               </CardHeader>
               <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Volunteer</TableHead>
-                      <TableHead>Role</TableHead>
-                      <TableHead>Location</TableHead>
-                      <TableHead>Assignment</TableHead>
-                      <TableHead>Assignments</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {volunteers.map((volunteer) => (
-                      <TableRow key={volunteer.id}>
-                        <TableCell>
-                          <div>
-                            <div className="font-medium">{volunteer.name}</div>
-                            <div className="text-sm text-gray-500">{volunteer.email}</div>
-                            <div className="text-xs text-gray-400">{volunteer.phone}</div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={volunteer.role === 'tracking_volunteer' ? 'default' : 'secondary'}>
-                            {volunteer.role === 'tracking_volunteer' ? 'Tracking' : 'Supply'}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-1">
-                            <MapPin className="w-4 h-4 text-gray-500" />
-                            {volunteer.location}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="text-sm text-gray-600">
-                            {volunteer.assignment || 'No assignment'}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-1">
-                            <TrendingUp className="w-4 h-4 text-gray-500" />
-                            {volunteer.assignmentsCompleted}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge className={getStatusColor(volunteer.status)}>
-                            {volunteer.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            {volunteer.status === 'pending' && (
-                              <>
-                                <Button size="sm" onClick={() => handleApproveVolunteer(volunteer.id)}>
-                                  <Check className="w-3 h-3" />
-                                </Button>
-                                <Button size="sm" variant="outline" onClick={() => handleRejectVolunteer(volunteer.id)}>
-                                  <X className="w-3 h-3" />
-                                </Button>
-                              </>
-                            )}
-                            <Button size="sm" variant="outline">
-                              <MessageCircle className="w-3 h-3" />
-                            </Button>
-                          </div>
-                        </TableCell>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-blue-50 hover:bg-blue-100 border-b-2 border-blue-200 transition-colors">
+                        <TableHead className="font-bold text-gray-800">Name</TableHead>
+                        <TableHead className="font-bold text-gray-800">Role</TableHead>
+                        <TableHead className="font-bold text-gray-800">Email</TableHead>
+                        <TableHead className="font-bold text-gray-800">Phone</TableHead>
+                        <TableHead className="font-bold text-gray-800 text-center">Actions</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {volunteers.map((volunteer) => (
+                        <TableRow key={volunteer.id} className="hover:bg-blue-50 transition-colors border-b border-gray-200">
+                          <TableCell>
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white text-sm font-bold">
+                                {volunteer.name.charAt(0).toUpperCase()}
+                              </div>
+                              <span className="font-semibold text-gray-900">{volunteer.name}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={volunteer.role === 'tracking_volunteer' ? 'default' : 'secondary'} className="px-3 py-1">
+                              {volunteer.role === 'tracking_volunteer' ? 'Tracking' : 'Normal'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div className="text-sm text-gray-700 flex items-center gap-2">
+                              <Mail className="w-4 h-4 text-gray-400" />
+                              {volunteer.email}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="text-sm text-gray-700 flex items-center gap-2">
+                              <Phone className="w-4 h-4 text-gray-400" />
+                              {volunteer.phone}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center justify-center gap-3">
+                              <Button 
+                                size="sm" 
+                                onClick={() => handleEditVolunteer(volunteer)}
+                                className="bg-blue-500 hover:bg-blue-600 text-white rounded-full p-2 transition-all hover:scale-110 shadow-md hover:shadow-lg"
+                                title="Edit volunteer"
+                              >
+                                <Edit className="w-4 h-4" />
+                              </Button>
+                              <Button 
+                                size="sm" 
+                                variant="outline"
+                                onClick={() => volunteer.org_member_id && handleDeleteVolunteer(volunteer.org_member_id)}
+                                className="border-red-300 text-red-600 hover:bg-red-50 rounded-full p-2 transition-all hover:scale-110"
+                                title="Delete volunteer"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -1289,11 +1372,11 @@ export default function OrganizationPage() {
               <CardContent>
                 <Table>
                   <TableHeader>
-                    <TableRow>
-                      <TableHead>Region</TableHead>
-                      <TableHead>Category</TableHead>
-                      <TableHead>Unit</TableHead>
-                      <TableHead>Total Quantity Needed</TableHead>
+                    <TableRow className="bg-blue-50 hover:bg-blue-100 border-b-2 border-blue-200">
+                      <TableHead className="font-bold text-gray-800">Region</TableHead>
+                      <TableHead className="font-bold text-gray-800">Category</TableHead>
+                      <TableHead className="font-bold text-gray-800">Unit</TableHead>
+                      <TableHead className="font-bold text-gray-800 text-right">Total Quantity Needed</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1313,7 +1396,7 @@ export default function OrganizationPage() {
                         )
                       }
 
-                      // Group supplies by region for row spanning
+                      // Group supplies by region
                       const suppliesByRegion: { [region: string]: AggregatedSupply[] } = {}
                       filteredSupplies.forEach(supply => {
                         if (!suppliesByRegion[supply.region]) {
@@ -1323,23 +1406,28 @@ export default function OrganizationPage() {
                       })
 
                       const rows: React.ReactElement[] = []
-                      let regionIndex = 0
+                      const regionNames = Object.keys(suppliesByRegion).sort()
 
-                      Object.entries(suppliesByRegion).forEach(([region, supplies]) => {
-                        supplies.forEach((supply, idx) => {
+                      regionNames.forEach((region) => {
+                        const regionSupplies = suppliesByRegion[region]
+                        const CATEGORY_COUNT = 6 // Fixed 6 categories
+
+                        regionSupplies.forEach((supply, idx) => {
                           rows.push(
-                            <TableRow key={`${region}-${supply.itemId}`}>
+                            <TableRow key={`${region}-${supply.category}-${idx}`} className="hover:bg-blue-50 transition-colors">
                               {idx === 0 ? (
-                                <TableCell rowSpan={supplies.length} className="font-medium align-top border-r">
-                                  {region}
+                                <TableCell rowSpan={CATEGORY_COUNT} className="font-semibold align-top border-r bg-gray-50">
+                                  <div className="py-4">{region}</div>
                                 </TableCell>
                               ) : null}
-                              <TableCell className="font-medium">{supply.category}</TableCell>
-                              <TableCell>{supply.unit}</TableCell>
+                              <TableCell className="font-medium text-gray-700">{supply.category}</TableCell>
+                              <TableCell className="text-gray-600">{supply.unit}</TableCell>
                               <TableCell>
-                                <div className="flex items-center gap-2">
-                                  <Package className="w-4 h-4 text-gray-500" />
-                                  <span className="font-semibold text-lg">{supply.totalQuantityNeeded.toLocaleString()}</span>
+                                <div className="flex items-center justify-end gap-2">
+                                  <Package className="w-4 h-4 text-blue-500" />
+                                  <span className={`font-semibold text-lg ${supply.totalQuantityNeeded > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
+                                    {supply.totalQuantityNeeded}
+                                  </span>
                                 </div>
                               </TableCell>
                             </TableRow>

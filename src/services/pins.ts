@@ -1224,98 +1224,208 @@ export async function fetchAggregatedSuppliesByRegion(): Promise<{
   error?: string
 }> {
   try {
-    // Fetch only confirmed pins
-    const { data: confirmedPins, error: pinsError } = await supabase
-      .from('pins')
-      .select('id, latitude, longitude')
-      .eq('status', 'confirmed')
-
-    if (pinsError) {
-      console.error('Error fetching confirmed pins:', pinsError)
-      return { success: false, error: pinsError.message }
+    console.log('🔍 fetchAggregatedSuppliesByRegion called')
+    
+    // Debug: Check what's in pin_items table
+    const { data: allPinItems, error: debugError } = await supabase
+      .from('pin_items')
+      .select('*')
+      .limit(5)
+    
+    console.log('🔍 Debug - Sample pin_items in database:', allPinItems)
+    if (debugError) {
+      console.error('Debug error:', debugError)
     }
+    
+    // Define the 6 standard categories
+    const STANDARD_CATEGORIES = [
+      { name: 'Cloth Packs', unit: 'packs' },
+      { name: 'People Hurt', unit: 'people' },
+      { name: 'Medicine Box', unit: 'boxes' },
+      { name: 'Blankets', unit: 'units' },
+      { name: 'Food Packs', unit: 'packs' },
+      { name: 'Water Bottles', unit: 'bottles' }
+    ]
 
-    if (!confirmedPins || confirmedPins.length === 0) {
-      return { success: true, supplies: [] }
-    }
-
-    // Fetch pin items with item details
-    const pinIds = confirmedPins.map((p: any) => p.id)
+    // Simple approach: Just fetch all pin_items with confirmed pins
     const { data: pinItemsData, error: pinItemsError } = await supabase
       .from('pin_items')
-      .select('pin_id, item_id, remaining_qty, items(id, name, category, unit)')
-      .in('pin_id', pinIds)
+      .select(`
+        pin_id,
+        item_id,
+        remaining_qty,
+        requested_qty,
+        items (
+          id,
+          name,
+          category,
+          unit
+        ),
+        pins!inner (
+          id,
+          status,
+          latitude,
+          longitude
+        )
+      `)
+      .eq('pins.status', 'confirmed')
 
     if (pinItemsError) {
-      console.error('Error fetching pin items:', pinItemsError)
+      console.error('Error fetching pin items with items:', pinItemsError)
       return { success: false, error: pinItemsError.message }
     }
 
+    console.log(`✅ Found ${pinItemsData?.length || 0} pin items with item details`)
+    if (pinItemsData && pinItemsData.length > 0) {
+      console.log('Sample pin items:', pinItemsData.slice(0, 3))
+    } else {
+      console.log('❌ No pin items found for confirmed pins')
+    }
+
     if (!pinItemsData || pinItemsData.length === 0) {
+      console.log('❌ No pin items found')
       return { success: true, supplies: [] }
     }
 
-    // Build a map of pins to their coordinates
+    // Step 6: Build pin coordinate map from pin_items data
     const pinCoordinatesMap: { [pinId: string]: { lat: number; lng: number } } = {}
-    confirmedPins.forEach((pin: any) => {
-      pinCoordinatesMap[pin.id] = {
-        lat: parseFloat(pin.latitude),
-        lng: parseFloat(pin.longitude),
-      }
-    })
-
-    // Group pin items by their pin_id to geocode regions
-    const pinItemsByPin: { [pinId: string]: any[] } = {}
-    pinItemsData.forEach((pi: any) => {
-      if (!pinItemsByPin[pi.pin_id]) {
-        pinItemsByPin[pi.pin_id] = []
-      }
-      pinItemsByPin[pi.pin_id].push(pi)
-    })
-
-    // Geocode each pin to get its region
-    const pinRegionMap: { [pinId: string]: string } = {}
-    await Promise.all(
-      Object.keys(pinItemsByPin).map(async (pinId) => {
-        const coords = pinCoordinatesMap[pinId]
-        if (coords && typeof coords.lat === 'number' && typeof coords.lng === 'number' &&
-            !isNaN(coords.lat) && !isNaN(coords.lng) &&
-            coords.lat >= -90 && coords.lat <= 90 &&
-            coords.lng >= -180 && coords.lng <= 180) {
-          const geoResult = await getReverseGeocodedAddress(coords.lat, coords.lng)
-          pinRegionMap[pinId] = geoResult.success && geoResult.address ? geoResult.address : 'Unknown Region'
-        } else {
-          pinRegionMap[pinId] = 'Unknown Region'
+    const uniquePins: { [pinId: string]: any } = {}
+    
+    pinItemsData.forEach((pinItem: any) => {
+      if (pinItem.pins && !uniquePins[pinItem.pin_id]) {
+        uniquePins[pinItem.pin_id] = pinItem.pins
+        pinCoordinatesMap[pinItem.pin_id] = {
+          lat: parseFloat(pinItem.pins.latitude),
+          lng: parseFloat(pinItem.pins.longitude),
         }
-      })
-    )
+      }
+    })
+    console.log('Pin coordinates map built')
 
-    // Aggregate supplies: group by (region, category, unit, item_id) and sum remaining_qty
+    // Step 7: Build region map for each pin via geocoding
+    const pinRegionMap: { [pinId: string]: string } = {}
+    for (const pinId of Object.keys(uniquePins)) {
+      const pin = uniquePins[pinId]
+      const coords = pinCoordinatesMap[pin.id]
+      if (coords && typeof coords.lat === 'number' && typeof coords.lng === 'number' &&
+          !isNaN(coords.lat) && !isNaN(coords.lng) &&
+          coords.lat >= -90 && coords.lat <= 90 &&
+          coords.lng >= -180 && coords.lng <= 180) {
+        const geoResult = await getReverseGeocodedAddress(coords.lat, coords.lng)
+        pinRegionMap[pin.id] = geoResult.success && geoResult.address ? geoResult.address : 'Unknown Region'
+        console.log(`Pin ${pin.id}: ${coords.lat}, ${coords.lng} => ${pinRegionMap[pin.id]}`)
+      } else {
+        pinRegionMap[pin.id] = 'Unknown Region'
+      }
+    }
+    console.log(`✅ Geocoded ${Object.keys(pinRegionMap).length} pins to regions`)
+
+    // Step 8: Aggregate supplies by (region, category) and sum remaining_qty
     const aggregatedMap: { [key: string]: { region: string; category: string; unit: string; itemId: string; totalQuantityNeeded: number } } = {}
 
-    pinItemsData.forEach((pi: any) => {
-      const region = pinRegionMap[pi.pin_id] || 'Unknown Region'
-      const category = pi.items?.category || 'Unknown Category'
-      const unit = pi.items?.unit || 'Unknown Unit'
-      const itemId = pi.item_id || 'unknown'
-      const key = `${region}|${category}|${unit}|${itemId}`
+    pinItemsData.forEach((pinItem: any) => {
+      const pinId = pinItem.pin_id
+      const itemId = pinItem.item_id
+      // Use remaining_qty if it's not null, otherwise use requested_qty as fallback
+      const remainingQty = typeof pinItem.remaining_qty === 'number' ? pinItem.remaining_qty : (pinItem.requested_qty || 0)
+
+      console.log(`Processing pin_item: pin_id=${pinId}, item_id=${itemId}, remaining_qty=${remainingQty}, requested_qty=${pinItem.requested_qty}`)
+
+      // Get region for this pin
+      const region = pinRegionMap[pinId]
+      if (!region) {
+        console.warn(`No region found for pin ${pinId}`)
+        return
+      }
+
+      // Get item info from the joined data
+      const itemInfo = pinItem.items
+      if (!itemInfo) {
+        console.warn(`Item info not found for item_id ${itemId}`)
+        return
+      }
+
+      const category = itemInfo.category || 'Unknown Category'
+      const unit = itemInfo.unit || 'Unknown Unit'
+
+      console.log(`  => Region: ${region}, Category: ${category}, Unit: ${unit}, Qty: ${remainingQty}`)
+      
+      // Special debug for blankets
+      if (category.toLowerCase() === 'blankets') {
+        console.log(`🛏️ BLANKETS DEBUG: pin_id=${pinId}, item_id=${itemId}, remaining_qty=${pinItem.remaining_qty}, requested_qty=${pinItem.requested_qty}, calculated_qty=${remainingQty}`)
+      }
+
+      // Use exact category from items table - no mapping
+      const normalizedCategory = category
+
+      // Create key for aggregation (region + category only)
+      const key = `${region}|${normalizedCategory}`
 
       if (!aggregatedMap[key]) {
         aggregatedMap[key] = {
           region,
-          category,
-          unit,
+          category: normalizedCategory,
+          unit: STANDARD_CATEGORIES.find(c => c.name === normalizedCategory)?.unit || unit,
           itemId,
           totalQuantityNeeded: 0,
         }
       }
-      aggregatedMap[key].totalQuantityNeeded += pi.remaining_qty || 0
+
+      // ADD the remaining_qty to the total
+      aggregatedMap[key].totalQuantityNeeded += remainingQty
+
+      console.log(`  => Updated key "${key}" to total: ${aggregatedMap[key].totalQuantityNeeded}`)
     })
 
-    // Convert to array and sort by region
-    const supplies = Object.values(aggregatedMap).sort((a, b) => a.region.localeCompare(b.region))
+    console.log(`✅ Aggregated into ${Object.keys(aggregatedMap).length} category-region combinations`)
+    console.log('Aggregated data:', aggregatedMap)
+    
+    // Debug: Show which items had non-zero quantities
+    Object.entries(aggregatedMap).forEach(([key, data]) => {
+      if (data.totalQuantityNeeded > 0) {
+        console.log(`🔥 Non-zero quantity found: ${key} = ${data.totalQuantityNeeded}`)
+      }
+    })
 
-    console.log(`✅ Fetched aggregated supplies for ${supplies.length} items across regions`)
+    // Step 9: Get all unique regions
+    const regionsSet = new Set(Object.values(aggregatedMap).map(item => item.region))
+    const regions = Array.from(regionsSet).sort()
+
+    console.log(`✅ Found regions: ${regions.join(', ')}`)
+
+    // Step 10: Build final supplies array with all 6 categories for each region
+    const supplies: Array<{
+      region: string
+      category: string
+      unit: string
+      totalQuantityNeeded: number
+      itemId: string
+    }> = []
+
+    regions.forEach((region) => {
+      STANDARD_CATEGORIES.forEach((standardCat) => {
+        const key = `${region}|${standardCat.name}`
+        const aggregatedItem = aggregatedMap[key]
+
+        if (aggregatedItem) {
+          // Use existing aggregated data with the actual quantity
+          supplies.push(aggregatedItem)
+        } else {
+          // No items for this category in this region - add with 0
+          supplies.push({
+            region,
+            category: standardCat.name,
+            unit: standardCat.unit,
+            totalQuantityNeeded: 0,
+            itemId: ''
+          })
+        }
+      })
+    })
+
+    console.log(`✅ Final supplies: ${regions.length} regions × 6 categories = ${supplies.length} entries`)
+    console.log('Final supplies data:', supplies)
+    
     return { success: true, supplies }
   } catch (err) {
     console.error('Error in fetchAggregatedSuppliesByRegion:', err)
