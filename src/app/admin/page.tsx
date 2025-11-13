@@ -28,78 +28,39 @@ import {
 } from 'lucide-react'
 import { useLanguage } from '@/hooks/use-language'
 import { useAuth } from '@/hooks/use-auth'
+import { supabase } from '@/lib/supabase'
 
 interface Organization {
   id: string
   name: string
-  username: string
-  password: string
-  region: string
-  funding: string
-  volunteerCount: number
+  email: string
+  phone: string
+  address: string
   status: 'active' | 'inactive' | 'pending'
-  createdAt: Date
-  contactEmail: string
-  contactPhone: string
+  is_verified: boolean
+  password: string
+  role: string
+  funding: string
+  region: string
+  created_at: string
+  volunteer_count: number
 }
-
-// Mock data
-const mockOrganizations: Organization[] = [
-  {
-    id: '1',
-    name: 'Rescue Team A',
-    username: 'orgA',
-    password: 'org123',
-    region: 'Yangon',
-    funding: '$50,000',
-    volunteerCount: 45,
-    status: 'active',
-    createdAt: new Date('2024-01-15'),
-    contactEmail: 'contact@rescueba.com',
-    contactPhone: '+959123456789'
-  },
-  {
-    id: '2',
-    name: 'Medical Response B',
-    username: 'orgB',
-    password: 'orgB123',
-    region: 'Mandalay',
-    funding: '$75,000',
-    volunteerCount: 32,
-    status: 'active',
-    createdAt: new Date('2024-02-20'),
-    contactEmail: 'info@medicalb.org',
-    contactPhone: '+959987654321'
-  },
-  {
-    id: '3',
-    name: 'Supply Chain C',
-    username: 'orgC',
-    password: 'orgC123',
-    region: 'Naypyidaw',
-    funding: '$100,000',
-    volunteerCount: 28,
-    status: 'pending',
-    createdAt: new Date('2024-03-10'),
-    contactEmail: 'admin@supplyc.org',
-    contactPhone: '+959456789123'
-  }
-]
 
 export default function AdminPage() {
   const { t } = useLanguage()
   const { user } = useAuth()
-  const [organizations, setOrganizations] = useState<Organization[]>(mockOrganizations)
+  const [organizations, setOrganizations] = useState<Organization[]>([])
+  const [loading, setLoading] = useState(true)
   const [showRegisterOrg, setShowRegisterOrg] = useState(false)
   const [editingOrg, setEditingOrg] = useState<Organization | null>(null)
   const [newOrg, setNewOrg] = useState({
     name: '',
-    username: '',
+    email: '',
     password: '',
     region: '',
     funding: '',
-    contactEmail: '',
-    contactPhone: ''
+    phone: '',
+    address: ''
   })
 
   // Redirect non-admin users
@@ -109,91 +70,243 @@ export default function AdminPage() {
     }
   }, [user])
 
-  const handleRegisterOrganization = () => {
-    if (!newOrg.name || !newOrg.username || !newOrg.password || !newOrg.region) {
+  // Fetch organizations from Supabase
+  useEffect(() => {
+    fetchOrganizations()
+  }, [])
+
+  const fetchOrganizations = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('organizations')
+        .select('*')
+        .order('created_at', { ascending: false })
+
+      if (error) {
+        console.error('Error fetching organizations:', error)
+        return
+      }
+
+      // Get volunteer counts from org_member table
+      const organizationsWithVolunteers = await Promise.all(
+        (data || []).map(async (org) => {
+          const { count, error: countError } = await supabase
+            .from('org_member')
+            .select('*', { count: 'exact', head: true })
+            .eq('organization_id', org.id)
+            .eq('status', 'active')
+
+          if (countError) {
+            console.error('Error fetching volunteer count:', countError)
+            return { ...org, volunteer_count: 0 }
+          }
+
+          return { ...org, volunteer_count: count || 0 }
+        })
+      )
+
+      setOrganizations(organizationsWithVolunteers)
+    } catch (error) {
+      console.error('Error fetching organizations:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleRegisterOrganization = async () => {
+    if (!newOrg.name || !newOrg.email || !newOrg.password || !newOrg.region) {
       alert('Please fill all required fields')
       return
     }
 
-    const organization: Organization = {
-      id: Date.now().toString(),
-      name: newOrg.name,
-      username: newOrg.username,
-      password: newOrg.password,
-      region: newOrg.region,
-      funding: newOrg.funding || '$0',
-      volunteerCount: 0,
-      status: 'pending',
-      createdAt: new Date(),
-      contactEmail: newOrg.contactEmail,
-      contactPhone: newOrg.contactPhone
-    }
+    try {
+      const organizationData = {
+        name: newOrg.name,
+        email: newOrg.email,
+        phone: newOrg.phone || null,
+        address: newOrg.address || null,
+        password: newOrg.password,
+        funding: newOrg.funding || '0',
+        region: newOrg.region,
+        status: 'pending',
+        is_verified: false,
+        role: 'organization'
+      }
 
-    setOrganizations([...organizations, organization])
-    setNewOrg({
-      name: '',
-      username: '',
-      password: '',
-      region: '',
-      funding: '',
-      contactEmail: '',
-      contactPhone: ''
-    })
-    setShowRegisterOrg(false)
+      const { data, error } = await supabase
+        .from('organizations')
+        .insert([organizationData])
+        .select()
+
+      if (error) {
+        console.error('Error creating organization:', error)
+        alert('Error creating organization: ' + error.message)
+        return
+      }
+
+      if (data && data[0]) {
+        setOrganizations(prev => [data[0], ...prev])
+        setNewOrg({
+          name: '',
+          email: '',
+          password: '',
+          region: '',
+          funding: '',
+          phone: '',
+          address: ''
+        })
+        setShowRegisterOrg(false)
+        alert('Organization registered successfully!')
+      }
+    } catch (error) {
+      console.error('Error creating organization:', error)
+      alert('Error creating organization')
+    }
   }
 
   const handleEditOrganization = (org: Organization) => {
     setEditingOrg(org)
     setNewOrg({
       name: org.name,
-      username: org.username,
-      password: org.password,
+      email: org.email,
+      password: '', // Don't show password for security
       region: org.region,
       funding: org.funding,
-      contactEmail: org.contactEmail,
-      contactPhone: org.contactPhone
+      phone: org.phone || '',
+      address: org.address || ''
     })
     setShowRegisterOrg(true)
   }
 
-  const handleUpdateOrganization = () => {
+  const handleUpdateOrganization = async () => {
     if (!editingOrg) return
 
-    setOrganizations(organizations.map(org => 
-      org.id === editingOrg.id 
-        ? { ...org, ...newOrg }
-        : org
-    ))
+    try {
+      const updateData: any = {
+        name: newOrg.name,
+        email: newOrg.email,
+        phone: newOrg.phone || null,
+        address: newOrg.address || null,
+        funding: newOrg.funding,
+        region: newOrg.region
+      }
 
-    setEditingOrg(null)
-    setNewOrg({
-      name: '',
-      username: '',
-      password: '',
-      region: '',
-      funding: '',
-      contactEmail: '',
-      contactPhone: ''
-    })
-    setShowRegisterOrg(false)
-  }
+      // Only update password if provided
+      if (newOrg.password) {
+        updateData.password = newOrg.password
+      }
 
-  const handleDeleteOrganization = (orgId: string) => {
-    if (confirm('Are you sure you want to delete this organization?')) {
-      setOrganizations(organizations.filter(org => org.id !== orgId))
+      const { data, error } = await supabase
+        .from('organizations')
+        .update(updateData)
+        .eq('id', editingOrg.id)
+        .select()
+
+      if (error) {
+        console.error('Error updating organization:', error)
+        alert('Error updating organization: ' + error.message)
+        return
+      }
+
+      if (data && data[0]) {
+        setOrganizations(prev => 
+          prev.map(org => org.id === editingOrg.id ? data[0] : org)
+        )
+        setEditingOrg(null)
+        setNewOrg({
+          name: '',
+          email: '',
+          password: '',
+          region: '',
+          funding: '',
+          phone: '',
+          address: ''
+        })
+        setShowRegisterOrg(false)
+        alert('Organization updated successfully!')
+      }
+    } catch (error) {
+      console.error('Error updating organization:', error)
+      alert('Error updating organization')
     }
   }
 
-  const handleApproveOrganization = (orgId: string) => {
-    setOrganizations(organizations.map(org => 
-      org.id === orgId ? { ...org, status: 'active' } : org
-    ))
+  const handleDeleteOrganization = async (orgId: string) => {
+    if (!confirm('Are you sure you want to delete this organization?')) return
+
+    try {
+      const { error } = await supabase
+        .from('organizations')
+        .delete()
+        .eq('id', orgId)
+
+      if (error) {
+        console.error('Error deleting organization:', error)
+        alert('Error deleting organization: ' + error.message)
+        return
+      }
+
+      setOrganizations(prev => prev.filter(org => org.id !== orgId))
+      alert('Organization deleted successfully!')
+    } catch (error) {
+      console.error('Error deleting organization:', error)
+      alert('Error deleting organization')
+    }
   }
 
-  const handleRejectOrganization = (orgId: string) => {
-    setOrganizations(organizations.map(org => 
-      org.id === orgId ? { ...org, status: 'inactive' } : org
-    ))
+  const handleApproveOrganization = async (orgId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('organizations')
+        .update({ 
+          status: 'active',
+          is_verified: true 
+        })
+        .eq('id', orgId)
+        .select()
+
+      if (error) {
+        console.error('Error approving organization:', error)
+        alert('Error approving organization: ' + error.message)
+        return
+      }
+
+      if (data && data[0]) {
+        setOrganizations(prev => 
+          prev.map(org => org.id === orgId ? data[0] : org)
+        )
+        alert('Organization approved successfully!')
+      }
+    } catch (error) {
+      console.error('Error approving organization:', error)
+      alert('Error approving organization')
+    }
+  }
+
+  const handleRejectOrganization = async (orgId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('organizations')
+        .update({ status: 'inactive' })
+        .eq('id', orgId)
+        .select()
+
+      if (error) {
+        console.error('Error rejecting organization:', error)
+        alert('Error rejecting organization: ' + error.message)
+        return
+      }
+
+      if (data && data[0]) {
+        setOrganizations(prev => 
+          prev.map(org => org.id === orgId ? data[0] : org)
+        )
+        alert('Organization rejected successfully!')
+      }
+    } catch (error) {
+      console.error('Error rejecting organization:', error)
+      alert('Error rejecting organization')
+    }
   }
 
   const getStatusColor = (status: string) => {
@@ -207,9 +320,9 @@ export default function AdminPage() {
 
   const activeOrganizations = organizations.filter(org => org.status === 'active').length
   const pendingOrganizations = organizations.filter(org => org.status === 'pending').length
-  const totalVolunteers = organizations.reduce((sum, org) => sum + org.volunteerCount, 0)
+  const totalVolunteers = organizations.reduce((sum, org) => sum + org.volunteer_count, 0)
   const totalFunding = organizations.reduce((sum, org) => {
-    const amount = parseInt(org.funding.replace(/[^0-9]/g, ''))
+    const amount = parseInt(org.funding) || 0
     return sum + amount
   }, 0)
 
@@ -317,74 +430,80 @@ export default function AdminPage() {
                 </div>
               </CardHeader>
               <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Organization</TableHead>
-                      <TableHead>Region</TableHead>
-                      <TableHead>Volunteers</TableHead>
-                      <TableHead>Funding</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {organizations.map((org) => (
-                      <TableRow key={org.id}>
-                        <TableCell>
-                          <div>
-                            <div className="font-medium">{org.name}</div>
-                            <div className="text-sm text-gray-500">@{org.username}</div>
-                            <div className="text-xs text-gray-400">{org.contactEmail}</div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-1">
-                            <MapPin className="w-4 h-4 text-gray-500" />
-                            {org.region}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-1">
-                            <Users className="w-4 h-4 text-gray-500" />
-                            {org.volunteerCount}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-1">
-                            <DollarSign className="w-4 h-4 text-gray-500" />
-                            {org.funding}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge className={getStatusColor(org.status)}>
-                            {org.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            {org.status === 'pending' && (
-                              <>
-                                <Button size="sm" onClick={() => handleApproveOrganization(org.id)}>
-                                  <Check className="w-3 h-3" />
-                                </Button>
-                                <Button size="sm" variant="outline" onClick={() => handleRejectOrganization(org.id)}>
-                                  <X className="w-3 h-3" />
-                                </Button>
-                              </>
-                            )}
-                            <Button size="sm" variant="outline" onClick={() => handleEditOrganization(org)}>
-                              <Edit className="w-3 h-3" />
-                            </Button>
-                            <Button size="sm" variant="destructive" onClick={() => handleDeleteOrganization(org.id)}>
-                              <Trash2 className="w-3 h-3" />
-                            </Button>
-                          </div>
-                        </TableCell>
+                {loading ? (
+                  <div className="text-center py-8">Loading organizations...</div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Organization</TableHead>
+                        <TableHead>Region</TableHead>
+                        <TableHead>Volunteers</TableHead>
+                        <TableHead>Funding</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Actions</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {organizations.map((org) => (
+                        <TableRow key={org.id}>
+                          <TableCell>
+                            <div>
+                              <div className="font-medium">{org.name}</div>
+                              <div className="text-sm text-gray-500">{org.email}</div>
+                              {org.phone && (
+                                <div className="text-xs text-gray-400">{org.phone}</div>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1">
+                              <MapPin className="w-4 h-4 text-gray-500" />
+                              {org.region}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1">
+                              <Users className="w-4 h-4 text-gray-500" />
+                              {org.volunteer_count}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1">
+                              <DollarSign className="w-4 h-4 text-gray-500" />
+                              ${parseInt(org.funding || '0').toLocaleString()}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge className={getStatusColor(org.status)}>
+                              {org.status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              {org.status === 'pending' && (
+                                <>
+                                  <Button size="sm" onClick={() => handleApproveOrganization(org.id)}>
+                                    <Check className="w-3 h-3" />
+                                  </Button>
+                                  <Button size="sm" variant="outline" onClick={() => handleRejectOrganization(org.id)}>
+                                    <X className="w-3 h-3" />
+                                  </Button>
+                                </>
+                              )}
+                              <Button size="sm" variant="outline" onClick={() => handleEditOrganization(org)}>
+                                <Edit className="w-3 h-3" />
+                              </Button>
+                              <Button size="sm" variant="destructive" onClick={() => handleDeleteOrganization(org.id)}>
+                                <Trash2 className="w-3 h-3" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -395,17 +514,17 @@ export default function AdminPage() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Plus className="w-5 h-5 text-green-500" />
-                  {t('admin.registerOrg')}
+                  {editingOrg ? 'Edit Organization' : t('admin.registerOrg')}
                 </CardTitle>
                 <CardDescription>
-                  Add a new organization to the platform
+                  {editingOrg ? 'Update organization details' : 'Add a new organization to the platform'}
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-4">
                     <div>
-                      <Label htmlFor="org-name">{t('admin.orgName')} *</Label>
+                      <Label htmlFor="org-name">Organization Name *</Label>
                       <Input
                         id="org-name"
                         value={newOrg.name}
@@ -415,28 +534,31 @@ export default function AdminPage() {
                     </div>
                     
                     <div>
-                      <Label htmlFor="org-username">{t('admin.orgUsername')} *</Label>
+                      <Label htmlFor="org-email">Email *</Label>
                       <Input
-                        id="org-username"
-                        value={newOrg.username}
-                        onChange={(e) => setNewOrg(prev => ({ ...prev, username: e.target.value }))}
-                        placeholder="Enter username"
+                        id="org-email"
+                        type="email"
+                        value={newOrg.email}
+                        onChange={(e) => setNewOrg(prev => ({ ...prev, email: e.target.value }))}
+                        placeholder="Enter email address"
                       />
                     </div>
                     
                     <div>
-                      <Label htmlFor="org-password">{t('admin.orgPassword')} *</Label>
+                      <Label htmlFor="org-password">
+                        {editingOrg ? 'New Password (leave blank to keep current)' : 'Password *'}
+                      </Label>
                       <Input
                         id="org-password"
                         type="password"
                         value={newOrg.password}
                         onChange={(e) => setNewOrg(prev => ({ ...prev, password: e.target.value }))}
-                        placeholder="Enter password"
+                        placeholder={editingOrg ? "Enter new password" : "Enter password"}
                       />
                     </div>
                     
                     <div>
-                      <Label htmlFor="org-region">{t('admin.orgRegion')} *</Label>
+                      <Label htmlFor="org-region">Region *</Label>
                       <Select value={newOrg.region} onValueChange={(value) => setNewOrg(prev => ({ ...prev, region: value }))}>
                         <SelectTrigger>
                           <SelectValue placeholder="Select region" />
@@ -464,7 +586,7 @@ export default function AdminPage() {
                   
                   <div className="space-y-4">
                     <div>
-                      <Label htmlFor="org-funding">{t('admin.orgFunding')}</Label>
+                      <Label htmlFor="org-funding">Funding</Label>
                       <Input
                         id="org-funding"
                         value={newOrg.funding}
@@ -474,23 +596,22 @@ export default function AdminPage() {
                     </div>
                     
                     <div>
-                      <Label htmlFor="org-email">Contact Email</Label>
+                      <Label htmlFor="org-phone">Phone</Label>
                       <Input
-                        id="org-email"
-                        type="email"
-                        value={newOrg.contactEmail}
-                        onChange={(e) => setNewOrg(prev => ({ ...prev, contactEmail: e.target.value }))}
-                        placeholder="Enter contact email"
+                        id="org-phone"
+                        value={newOrg.phone}
+                        onChange={(e) => setNewOrg(prev => ({ ...prev, phone: e.target.value }))}
+                        placeholder="Enter phone number"
                       />
                     </div>
                     
                     <div>
-                      <Label htmlFor="org-phone">Contact Phone</Label>
+                      <Label htmlFor="org-address">Address</Label>
                       <Input
-                        id="org-phone"
-                        value={newOrg.contactPhone}
-                        onChange={(e) => setNewOrg(prev => ({ ...prev, contactPhone: e.target.value }))}
-                        placeholder="Enter contact phone"
+                        id="org-address"
+                        value={newOrg.address}
+                        onChange={(e) => setNewOrg(prev => ({ ...prev, address: e.target.value }))}
+                        placeholder="Enter address"
                       />
                     </div>
                   </div>
@@ -507,12 +628,12 @@ export default function AdminPage() {
                         setEditingOrg(null)
                         setNewOrg({
                           name: '',
-                          username: '',
+                          email: '',
                           password: '',
                           region: '',
                           funding: '',
-                          contactEmail: '',
-                          contactPhone: ''
+                          phone: '',
+                          address: ''
                         })
                       }}>
                         Cancel

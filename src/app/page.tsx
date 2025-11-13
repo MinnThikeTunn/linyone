@@ -550,6 +550,12 @@ export default function HomePage() {
             zoom: 14,
           });
         }
+
+        toast({
+          title: "Success",
+          description: "Pin created successfully",
+          variant: "success",
+        });
       } else {
         toast({
           title: "Error",
