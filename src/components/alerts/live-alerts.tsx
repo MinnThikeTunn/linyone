@@ -76,6 +76,51 @@ export function LiveAlerts({ className }: { className?: string }) {
   const [status, setStatus] = useState<'idle' | 'connecting' | 'live' | 'error'>('idle')
   const [selectedForMap, setSelectedForMap] = useState<DisasterEvent | null>(null)
 
+  async function sendTestEqAlert() {
+    try {
+      const mag = Number((Math.random() * 2 + 4).toFixed(1)) // 4.0 - 6.0
+      const now = Date.now()
+      const unique = Math.random().toString(36).slice(2, 8)
+      const ev: DisasterEvent = {
+        id: `test-eq-${now}-${unique}`,
+        source: 'usgs',
+        type: 'earthquake',
+        title: `M${mag} Test Earthquake`,
+        description: 'Simulated test event for broadcast',
+        magnitude: mag,
+        place: 'Yangon, Myanmar (Test)',
+        time: now,
+        url: 'https://earthquake.usgs.gov/',
+        coordinates: [96.1421, 16.7875],
+        severity: severityFromMagnitude(mag),
+        location: 'Yangon, MM (Test)',
+      }
+      // Mark as seen locally to prevent Ably duplication race
+      seenIdsRef.current.add(ev.id)
+      // Broadcast to all connected users via server -> Ably
+      fetch('/api/broadcast-alert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: ev.id,
+          type: ev.type,
+          title: ev.title,
+          description: ev.description,
+          magnitude: ev.magnitude,
+          place: ev.place,
+          time: ev.time,
+          url: ev.url,
+          coordinates: ev.coordinates,
+          severity: ev.severity,
+          location: ev.location,
+          source: 'test'
+        })
+      }).catch(()=>{})
+      // Also insert locally for immediate visibility
+      setEvents((prev) => [ev, ...prev].sort((a, b) => b.time - a.time).slice(0, 200))
+    } catch {}
+  }
+
   // Subscribe to Ably earthquakes
   useEffect(() => {
     let cancelled = false
@@ -162,6 +207,27 @@ export function LiveAlerts({ className }: { className?: string }) {
             severity: severityFromMagnitude(mag),
             location: feature.properties?.place,
           }
+          // Broadcast to all connected clients via server -> Ably
+          try {
+            fetch('/api/broadcast-alert', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                id: ev.id,
+                type: ev.type,
+                title: ev.title,
+                description: ev.description,
+                magnitude: ev.magnitude,
+                place: ev.place,
+                time: ev.time,
+                url: ev.url,
+                coordinates: ev.coordinates,
+                severity: ev.severity,
+                location: ev.location,
+                source: 'usgs'
+              })
+            }).catch(()=>{})
+          } catch {}
           setEvents((prev) => [ev, ...prev].sort((a, b) => b.time - a.time).slice(0, 200))
         }
       } catch (err) {
@@ -244,6 +310,27 @@ export function LiveAlerts({ className }: { className?: string }) {
             severity: sev,
             location: s.name,
           }
+          try {
+            // Broadcast to server so ALL users get a toast via Ably
+            fetch('/api/broadcast-alert', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                id: ev.id,
+                type: ev.type,
+                title: ev.title,
+                description: ev.description,
+                magnitude: ev.magnitude,
+                place: ev.place,
+                time: ev.time,
+                url: ev.url,
+                coordinates: ev.coordinates,
+                severity: ev.severity,
+                location: ev.location,
+                source: 'flood'
+              })
+            }).catch(()=>{})
+          } catch {}
           return ev
         })
         const results = await Promise.all(requests)
@@ -279,6 +366,11 @@ export function LiveAlerts({ className }: { className?: string }) {
 
   return (
     <div className={className}>
+      <div className="flex items-center justify-end mb-3">
+        <Button size="sm" variant="outline" onClick={sendTestEqAlert} title="Broadcast a test earthquake alert">
+          Send Test EQ Alert
+        </Button>
+      </div>
       {/* Risk summary cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
         <Card className="border-t-4 border-t-red-600">

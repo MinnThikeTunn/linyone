@@ -8,6 +8,7 @@ import { Navigation } from "@/components/navigation";
 import { AlertToToastBridge } from "@/components/alert-to-toast-bridge";
 import { NotificationToasts } from "@/components/notification-toasts";
 import { LiveAlerts } from "@/components/alerts/live-alerts";
+import DisasterToasts from "@/components/alerts/disaster-toasts";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -66,6 +67,7 @@ export default function RootLayout({
             <Toaster />
             <AlertToToastBridge />
             <NotificationToasts />
+            <DisasterToasts />
           </AuthProvider>
         </LanguageProvider>
       </body>
