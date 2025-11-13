@@ -56,6 +56,8 @@ import {
   type Item,
   type PinItem 
 } from "@/services/pins";
+import { analyzePin } from "@/lib/ai/analyzePin";
+import type { AISuggestion } from "@/lib/ai/types";
 
 // Add Mapbox GL JS
 import mapboxgl from "mapbox-gl";
@@ -131,6 +133,19 @@ export default function HomePage() {
   const [showPinListDialog, setShowPinListDialog] = useState(false);
   const [pinToConfirm, setPinToConfirm] = useState<Pin | null>(null);
     const [trackerSelectedItems, setTrackerSelectedItems] = useState<Map<string, number>>(new Map());
+  // AI suggestion states (Add Pin dialog)
+  const [aiSuggestAdd, setAiSuggestAdd] = useState<AISuggestion | null>(null);
+  const [aiLoadingAdd, setAiLoadingAdd] = useState(false);
+  const [aiErrorAdd, setAiErrorAdd] = useState<string | null>(null);
+  // AI suggestion states (Confirm Pin dialog)
+  const [aiSuggestConfirm, setAiSuggestConfirm] = useState<AISuggestion | null>(null);
+  const [aiLoadingConfirm, setAiLoadingConfirm] = useState(false);
+  const [aiErrorConfirm, setAiErrorConfirm] = useState<string | null>(null);
+  // Cached base64 images for AI
+  const [aiAddImageB64, setAiAddImageB64] = useState<string | undefined>(undefined);
+  const [aiAddImageMime, setAiAddImageMime] = useState<string | undefined>(undefined);
+  const [aiConfirmImageB64, setAiConfirmImageB64] = useState<string | undefined>(undefined);
+  const [aiConfirmImageMime, setAiConfirmImageMime] = useState<string | undefined>(undefined);
   
   // Items from database
   const [availableItems, setAvailableItems] = useState<Item[]>([]);
@@ -337,6 +352,166 @@ export default function HomePage() {
       }
     };
   }, []);
+
+  // Debounced AI suggestion for Add Pin dialog based on description
+  useEffect(() => {
+    if (!showPinDialog) return;
+    const desc = pinDescription.trim();
+    if (desc.length < 8) {
+      setAiSuggestAdd(null);
+      setAiErrorAdd(null);
+      return;
+    }
+    const handle = setTimeout(async () => {
+      setAiLoadingAdd(true);
+      setAiErrorAdd(null);
+      const s = await analyzePin({ description: desc, imageBase64: aiAddImageB64, imageMime: aiAddImageMime });
+      if (!s) setAiErrorAdd("No suggestions");
+      setAiSuggestAdd(s);
+      setAiLoadingAdd(false);
+      // Auto-apply for trackers only if nothing selected yet
+      if (isUserTracker && s && trackerSelectedItems.size === 0) {
+        applySuggestedItemsToTracker(s);
+      }
+    }, 600);
+    return () => clearTimeout(handle);
+  }, [pinDescription, showPinDialog, aiAddImageB64, aiAddImageMime, isUserTracker, trackerSelectedItems.size]);
+
+  // AI suggestion for Confirm Pin dialog when opened
+  useEffect(() => {
+    if (!showConfirmPinDialog || !pinToConfirm) return;
+    const desc = pinToConfirm.description?.trim();
+    if (!desc || desc.length < 4) {
+      setAiSuggestConfirm(null);
+      setAiErrorConfirm(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setAiLoadingConfirm(true);
+      setAiErrorConfirm(null);
+      const s = await analyzePin({ description: desc, imageBase64: aiConfirmImageB64, imageMime: aiConfirmImageMime });
+      if (!cancelled) {
+        if (!s) setAiErrorConfirm("No suggestions");
+        setAiSuggestConfirm(s || null);
+        setAiLoadingConfirm(false);
+        // Auto-apply if nothing selected yet
+        if (s && selectedItems.size === 0) {
+          applySuggestedItemsToConfirm(s);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [showConfirmPinDialog, pinToConfirm, aiConfirmImageB64, aiConfirmImageMime, selectedItems.size]);
+
+  // Convert Add Pin selected image to base64 for AI (once per file)
+  useEffect(() => {
+    if (!pinImage) {
+      setAiAddImageB64(undefined);
+      setAiAddImageMime(undefined);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const res = reader.result as string;
+      const comma = res.indexOf(",");
+      const b64 = comma >= 0 ? res.slice(comma + 1) : res;
+      setAiAddImageB64(b64);
+      setAiAddImageMime(pinImage.type || "image/jpeg");
+    };
+    reader.readAsDataURL(pinImage);
+  }, [pinImage]);
+
+  // Convert Confirm Pin image URL to base64 for AI when dialog opens
+  useEffect(() => {
+    let aborted = false;
+    async function load() {
+      if (!showConfirmPinDialog || !pinToConfirm?.image) {
+        setAiConfirmImageB64(undefined);
+        setAiConfirmImageMime(undefined);
+        return;
+      }
+      try {
+        const resp = await fetch(pinToConfirm.image);
+        const blob = await resp.blob();
+        if (aborted) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          if (aborted) return;
+          const res = reader.result as string;
+          const comma = res.indexOf(",");
+          const b64 = comma >= 0 ? res.slice(comma + 1) : res;
+          setAiConfirmImageB64(b64);
+          setAiConfirmImageMime(blob.type || "image/jpeg");
+        };
+        reader.readAsDataURL(blob);
+      } catch {
+        if (!aborted) {
+          setAiConfirmImageB64(undefined);
+          setAiConfirmImageMime(undefined);
+        }
+      }
+    }
+    load();
+    return () => {
+      aborted = true;
+    };
+  }, [showConfirmPinDialog, pinToConfirm?.image]);
+
+  const applySuggestedItemsToTracker = (suggest: AISuggestion | null) => {
+    if (!suggest || availableItems.length === 0) return;
+    const map = new Map<string, number>();
+    const lowerName = (s: string) => s.toLowerCase();
+    const matchId = (name: string) => {
+      const ln = lowerName(name);
+      // simple synonyms
+      const synonyms: Record<string, string[]> = {
+        "water bottles": ["water", "bottles", "water bottle"],
+        "first aid": ["firstaid", "first-aid", "aid"],
+        "medicine box": ["medicine", "med box", "medical"],
+        blankets: ["blanket"],
+      };
+      const candidates = [ln, ...Object.entries(synonyms).flatMap(([k, arr]) => (k === ln ? arr : []))];
+      const found = availableItems.find((it) => {
+        const ain = it.name.toLowerCase();
+        return candidates.some((c) => ain.includes(c));
+      });
+      return found?.id;
+    };
+    suggest.items.forEach((it) => {
+      const id = matchId(it.name);
+      if (id) map.set(id, (map.get(id) || 0) + Math.max(1, it.qty));
+    });
+    if (map.size > 0) setTrackerSelectedItems(map);
+  };
+
+  const applySuggestedItemsToConfirm = (suggest: AISuggestion | null) => {
+    if (!suggest || availableItems.length === 0) return;
+    const map = new Map<string, number>();
+    const lowerName = (s: string) => s.toLowerCase();
+    const matchId = (name: string) => {
+      const ln = lowerName(name);
+      const synonyms: Record<string, string[]> = {
+        "water bottles": ["water", "bottles", "water bottle"],
+        "first aid": ["firstaid", "first-aid", "aid"],
+        "medicine box": ["medicine", "med box", "medical"],
+        blankets: ["blanket"],
+      };
+      const candidates = [ln, ...Object.entries(synonyms).flatMap(([k, arr]) => (k === ln ? arr : []))];
+      const found = availableItems.find((it) => {
+        const ain = it.name.toLowerCase();
+        return candidates.some((c) => ain.includes(c));
+      });
+      return found?.id;
+    };
+    suggest.items.forEach((it) => {
+      const id = matchId(it.name);
+      if (id) map.set(id, (map.get(id) || 0) + Math.max(1, it.qty));
+    });
+    if (map.size > 0) setSelectedItems(map);
+  };
 
   // Update markers when pins change
   useEffect(() => {
@@ -946,6 +1121,54 @@ export default function HomePage() {
                           placeholder="Describe the situation..."
                           rows={3}
                         />
+                        {aiLoadingAdd && (
+                          <div className="mt-2 text-xs text-gray-500">Analyzing description…</div>
+                        )}
+                        {!aiLoadingAdd && aiSuggestAdd && (
+                          <div className="mt-2 border rounded-lg p-3 bg-gray-50">
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="text-sm font-medium">AI Suggestions</div>
+                              <div
+                                className={`text-xs px-2 py-0.5 rounded ${
+                                  aiSuggestAdd.severity >= 0.8
+                                    ? "bg-red-100 text-red-700"
+                                    : aiSuggestAdd.severity >= 0.5
+                                    ? "bg-yellow-100 text-yellow-700"
+                                    : "bg-green-100 text-green-700"
+                                }`}
+                              >
+                                Severity: {Math.round(aiSuggestAdd.severity * 100)}%
+                              </div>
+                            </div>
+                            <div className="text-xs text-gray-600 mb-2">
+                              Categories: {aiSuggestAdd.categories.join(", ")}
+                            </div>
+                            <div className="text-xs">
+                              {aiSuggestAdd.items.length > 0 ? (
+                                <ul className="list-disc ml-5">
+                                  {aiSuggestAdd.items.map((it, idx) => (
+                                    <li key={idx}>{it.name} × {it.qty}</li>
+                                  ))}
+                                </ul>
+                              ) : (
+                                <div>No items suggested.</div>
+                              )}
+                            </div>
+                            {isUserTracker && (
+                              <div className="mt-2 flex gap-2">
+                                <Button size="sm" variant="outline" onClick={() => applySuggestedItemsToTracker(aiSuggestAdd)}>
+                                  Apply Suggestions
+                                </Button>
+                                <Button size="sm" variant="ghost" onClick={() => setAiSuggestAdd(null)}>
+                                  Dismiss
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {!aiLoadingAdd && aiErrorAdd && (
+                          <div className="mt-2 text-xs text-gray-400">{aiErrorAdd}</div>
+                        )}
                       </div>
                       
                       <div>
@@ -1479,6 +1702,53 @@ export default function HomePage() {
                     </div>
                   </div>
                 )}
+
+                {/* AI Suggestions for Confirm */}
+                <div className="space-y-2 border-b pb-4">
+                  {aiLoadingConfirm && (
+                    <div className="text-sm text-gray-500">Analyzing report…</div>
+                  )}
+                  {!aiLoadingConfirm && aiSuggestConfirm && (
+                    <div className="rounded-lg p-3 bg-gray-50 border">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="text-sm font-medium">AI Suggestions</div>
+                        <div
+                          className={`text-xs px-2 py-0.5 rounded ${
+                            aiSuggestConfirm.severity >= 0.8
+                              ? "bg-red-100 text-red-700"
+                              : aiSuggestConfirm.severity >= 0.5
+                              ? "bg-yellow-100 text-yellow-700"
+                              : "bg-green-100 text-green-700"
+                          }`}
+                        >
+                          Severity: {Math.round(aiSuggestConfirm.severity * 100)}%
+                        </div>
+                      </div>
+                      <div className="text-xs text-gray-600 mb-2">
+                        Categories: {aiSuggestConfirm.categories.join(", ")}
+                      </div>
+                      <div className="text-xs">
+                        {aiSuggestConfirm.items.length > 0 ? (
+                          <ul className="list-disc ml-5">
+                            {aiSuggestConfirm.items.map((it, idx) => (
+                              <li key={idx}>{it.name} × {it.qty}</li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <div>No items suggested.</div>
+                        )}
+                      </div>
+                      <div className="mt-2">
+                        <Button size="sm" variant="outline" onClick={() => applySuggestedItemsToConfirm(aiSuggestConfirm)}>
+                          Apply Suggestions
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                  {!aiLoadingConfirm && aiErrorConfirm && (
+                    <div className="text-sm text-gray-400">{aiErrorConfirm}</div>
+                  )}
+                </div>
               </div>
 
               {/* Items from Database */}
