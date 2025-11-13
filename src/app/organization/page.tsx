@@ -40,7 +40,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useLanguage } from '@/hooks/use-language'
 import { useAuth } from '@/hooks/use-auth'
 import { useToast } from '@/hooks/use-toast'
-import { fetchConfirmedPinsForDashboard, acceptHelpRequestItems, checkAndHandleCompletedPin } from '@/services/pins'
+import { fetchConfirmedPinsForDashboard, acceptHelpRequestItems, checkAndHandleCompletedPin, fetchAggregatedSuppliesByRegion } from '@/services/pins'
 
 interface Volunteer {
   id: string
@@ -117,6 +117,14 @@ interface Supply {
   expiryDate?: Date
   lastUpdated: Date
   notes?: string
+}
+
+interface AggregatedSupply {
+  region: string
+  category: string
+  unit: string
+  totalQuantityNeeded: number
+  itemId: string
 }
 
 // Mock data
@@ -240,6 +248,7 @@ export default function OrganizationPage() {
   const [regionFilter, setRegionFilter] = useState<string>('all')
   const [partnerOrgs, setPartnerOrgs] = useState<PartnerOrg[]>(mockPartnerOrgs)
   const [supplies, setSupplies] = useState<Supply[]>(mockSupplies)
+  const [aggregatedSupplies, setAggregatedSupplies] = useState<AggregatedSupply[]>([])
   const [selectedRequest, setSelectedRequest] = useState<HelpRequest | null>(null)
   const [showAcceptDialog, setShowAcceptDialog] = useState(false)
   const [showCompleteDialog, setShowCompleteDialog] = useState(false)
@@ -286,6 +295,19 @@ export default function OrganizationPage() {
       }
     }
     loadHelpRequests()
+  }, [])
+
+  // Load aggregated supplies from database
+  useEffect(() => {
+    const loadAggregatedSupplies = async () => {
+      const result = await fetchAggregatedSuppliesByRegion()
+      if (result.success && result.supplies) {
+        setAggregatedSupplies(result.supplies)
+      } else {
+        console.error('Failed to load aggregated supplies:', result.error)
+      }
+    }
+    loadAggregatedSupplies()
   }, [])
 
   const handleApproveVolunteer = (volunteerId: string) => {
@@ -1276,87 +1298,48 @@ export default function OrganizationPage() {
                   </TableHeader>
                   <TableBody>
                     {(() => {
-                      // Get all confirmed help requests (pending or partially_accepted - these are the active requests)
-                      const confirmedRequests = helpRequests.filter(
-                        r => (r.status === 'pending' || r.status === 'partially_accepted') && r.region
-                      )
+                      // Filter aggregated supplies by region if selected
+                      const filteredSupplies = regionFilter === 'all'
+                        ? aggregatedSupplies
+                        : aggregatedSupplies.filter(s => s.region === regionFilter)
 
-                      // Filter by region if filter is set
-                      const filteredRequests = regionFilter === 'all' 
-                        ? confirmedRequests 
-                        : confirmedRequests.filter(r => r.region === regionFilter)
-
-                      // Get unique regions
-                      const regions = Array.from(new Set(filteredRequests.map(r => r.region).filter(Boolean))) as string[]
-                      
-                      // Standard supply categories
-                      const standardCategories = ['Food Packs', 'Water Bottles', 'Medicine Box', 'Clothes Packs', 'Blankets']
-                      const categoryMap: Record<string, string> = {
-                        'Food pack': 'Food Packs',
-                        'Food': 'Food Packs',
-                        'Water': 'Water Bottles',
-                        'Medicine': 'Medicine Box',
-                        'Clothes': 'Clothes Packs',
-                        'Clothing': 'Clothes Packs',
-                        'Blanket': 'Blankets',
-                        'Blankets': 'Blankets'
-                      }
-
-                      // Unit mapping for each category
-                      const unitMap: Record<string, string> = {
-                        'Food Packs': 'packs',
-                        'Water Bottles': 'bottles',
-                        'Medicine Box': 'boxes',
-                        'Clothes Packs': 'packs',
-                        'Blankets': 'pieces'
-                      }
-
-                      if (regions.length === 0) {
+                      if (filteredSupplies.length === 0) {
                         return (
                           <TableRow>
                             <TableCell colSpan={4} className="text-center py-8 text-gray-500">
-                              No confirmed help requests with supply needs found.
+                              No supplies needed{regionFilter !== 'all' ? ` in ${regionFilter}` : ''}.
                             </TableCell>
                           </TableRow>
                         )
                       }
 
-                      // Build table rows: for each region, show all 5 categories
-                      const rows: React.ReactElement[] = []
-                      
-                      regions.forEach(region => {
-                        // Aggregate supplies for this region
-                        const regionRequests = filteredRequests.filter(r => r.region === region)
-                        const regionSupplies: Record<string, number> = {}
-                        
-                        regionRequests.forEach(request => {
-                          request.requiredItems.forEach(item => {
-                            const standardCategory = categoryMap[item.category] || item.category
-                            if (standardCategories.includes(standardCategory)) {
-                              const key = standardCategory
-                              regionSupplies[key] = (regionSupplies[key] || 0) + item.quantity
-                            }
-                          })
-                        })
+                      // Group supplies by region for row spanning
+                      const suppliesByRegion: { [region: string]: AggregatedSupply[] } = {}
+                      filteredSupplies.forEach(supply => {
+                        if (!suppliesByRegion[supply.region]) {
+                          suppliesByRegion[supply.region] = []
+                        }
+                        suppliesByRegion[supply.region].push(supply)
+                      })
 
-                        // Create rows for all 5 categories for this region
-                        standardCategories.forEach((category, idx) => {
-                          const quantity = regionSupplies[category] || 0
-                          const unit = unitMap[category]
-                          
+                      const rows: React.ReactElement[] = []
+                      let regionIndex = 0
+
+                      Object.entries(suppliesByRegion).forEach(([region, supplies]) => {
+                        supplies.forEach((supply, idx) => {
                           rows.push(
-                            <TableRow key={`${region}-${category}`}>
+                            <TableRow key={`${region}-${supply.itemId}`}>
                               {idx === 0 ? (
-                                <TableCell rowSpan={standardCategories.length} className="font-medium align-top border-r">
+                                <TableCell rowSpan={supplies.length} className="font-medium align-top border-r">
                                   {region}
                                 </TableCell>
                               ) : null}
-                              <TableCell className="font-medium">{category}</TableCell>
-                              <TableCell>{unit}</TableCell>
+                              <TableCell className="font-medium">{supply.category}</TableCell>
+                              <TableCell>{supply.unit}</TableCell>
                               <TableCell>
                                 <div className="flex items-center gap-2">
                                   <Package className="w-4 h-4 text-gray-500" />
-                                  <span className="font-semibold text-lg">{quantity.toLocaleString()}</span>
+                                  <span className="font-semibold text-lg">{supply.totalQuantityNeeded.toLocaleString()}</span>
                                 </div>
                               </TableCell>
                             </TableRow>
