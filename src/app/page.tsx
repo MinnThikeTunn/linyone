@@ -127,6 +127,7 @@ export default function HomePage() {
     lng: number;
   } | null>(null);
   const [isCreatingPin, setIsCreatingPin] = useState(false);
+  const [aiGateChecking, setAiGateChecking] = useState(false);
   const [isUserTracker, setIsUserTracker] = useState(false);
   const [userOrgMemberId, setUserOrgMemberId] = useState<string | null>(null);
   const [showConfirmPinDialog, setShowConfirmPinDialog] = useState(false);
@@ -182,6 +183,35 @@ export default function HomePage() {
   const tempMarker = useRef<mapboxgl.Marker | null>(null);
   // Ref to avoid stale closure in map click handler
   const isSelectingLocationRef = useRef(false);
+  // Route drawing refs
+  const routeIds = useRef({ source: "tracker-route", layer: "tracker-route-layer" });
+
+  // Heuristic: decide if an AI suggestion looks like a rescue request
+  const isRescueRelated = (s: AISuggestion | null | undefined) => {
+    if (!s) return false;
+    const kw = [
+      "injury",
+      "injured",
+      "collapse",
+      "collapsed",
+      "trapped",
+      "rescue",
+      "help",
+      "urgent",
+      "medical",
+      "fire",
+      "flood",
+      "earthquake",
+      "building",
+      "damage",
+      "accident",
+      "bleeding",
+    ];
+    const hasCat = s.categories?.some((c) => kw.includes(c.toLowerCase()));
+    const hasItems = (s.items?.length || 0) > 0;
+    const severe = (s.severity || 0) >= 0.4;
+    return !!(hasCat || hasItems || severe);
+  };
 
   // Type-safe user role check
   const userRole = (user as User)?.role;
@@ -363,6 +393,113 @@ export default function HomePage() {
       canvas.style.cursor = isSelectingLocation ? "crosshair" : "";
     }
   }, [isSelectingLocation]);
+
+  // Helpers to manage route on the map
+  const clearRoute = () => {
+    if (!map.current) return;
+    const { source, layer } = routeIds.current;
+    if (map.current.getLayer(layer)) {
+      map.current.removeLayer(layer);
+    }
+    if (map.current.getSource(source)) {
+      map.current.removeSource(source);
+    }
+  };
+
+  const fitToLine = (coords: [number, number][]) => {
+    if (!map.current || coords.length === 0) return;
+    let minX = coords[0][0], minY = coords[0][1], maxX = coords[0][0], maxY = coords[0][1];
+    for (const [x, y] of coords) {
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+    map.current.fitBounds([[minX, minY], [maxX, maxY]], { padding: 60, duration: 700 });
+  };
+
+  const drawRoute = (coordinates: [number, number][]) => {
+    if (!map.current) return;
+    const { source, layer } = routeIds.current;
+    const data = {
+      type: "FeatureCollection",
+      features: [
+        {
+          type: "Feature",
+          geometry: {
+            type: "LineString",
+            coordinates,
+          },
+          properties: {},
+        },
+      ],
+    } as GeoJSON.FeatureCollection;
+
+    if (map.current.getSource(source)) {
+      (map.current.getSource(source) as mapboxgl.GeoJSONSource).setData(data as any);
+    } else {
+      map.current.addSource(source, { type: "geojson", data });
+      map.current.addLayer({
+        id: layer,
+        type: "line",
+        source,
+        paint: {
+          "line-color": "#2563eb",
+          "line-width": 5,
+          "line-opacity": 0.85,
+        },
+        layout: {
+          "line-cap": "round",
+          "line-join": "round",
+        },
+      });
+    }
+    fitToLine(coordinates);
+  };
+
+  const showRouteToPin = async (pin: Pin) => {
+    try {
+      if (!map.current) {
+        toast({ title: "Map not ready", description: "Please wait for the map to load.", variant: "destructive" });
+        return;
+      }
+      if (!userLocation) {
+        toast({ title: "Location required", description: "Get your current location first.", variant: "destructive" });
+        return;
+      }
+      clearRoute();
+
+      const token = (mapboxgl as any).accessToken as string | undefined;
+      const from = `${userLocation.lng},${userLocation.lat}`;
+      const to = `${pin.lng},${pin.lat}`;
+
+      if (token) {
+        const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${from};${to}?geometries=geojson&overview=full&access_token=${token}`;
+        const res = await fetch(url);
+        if (res.ok) {
+          const json = await res.json();
+          const coords: [number, number][] | undefined = json?.routes?.[0]?.geometry?.coordinates;
+          if (coords && coords.length) {
+            drawRoute(coords);
+            return;
+          }
+        }
+      }
+      // Fallback: draw straight line
+      drawRoute([
+        [userLocation.lng, userLocation.lat],
+        [pin.lng, pin.lat],
+      ]);
+    } catch (e) {
+      console.warn("Failed to draw route, drawing straight line", e);
+      if (userLocation) {
+        drawRoute([
+          [userLocation.lng, userLocation.lat],
+          [pin.lng, pin.lat],
+        ]);
+      }
+    }
+  };
 
   // Debounced AI suggestion for Add Pin dialog based on description
   useEffect(() => {
@@ -648,7 +785,64 @@ export default function HomePage() {
 
   const handleCreatePin = async () => {
     if (!pinPhone || !pinDescription) return;
+    setAiGateChecking(true);
+    // For normal users reporting damaged locations, gate by AI relevance
+    if (!isUserTracker && pinType === "damaged") {
+      try {
+        let s = aiSuggestAdd;
+        if (!s) {
+          const allowed = availableItems.map((it) => it.name);
+          s = await analyzePin({
+            description: pinDescription.trim(),
+            imageBase64: aiAddImageB64,
+            imageMime: aiAddImageMime,
+            allowedItems: allowed,
+          });
+          setAiSuggestAdd(s);
+        }
+        if (!isRescueRelated(s)) {
+          toast({
+            title: "Not a rescue request",
+            description:
+              "Please describe an actual disaster/urgent help situation and add a relevant photo.",
+            variant: "destructive",
+          });
+          setAiGateChecking(false);
+          return;
+        }
+      } catch (e) {
+        console.warn("AI relevance check failed; proceeding without gate.", e);
+      }
+    }
+    // For normal users reporting safe zones, ensure it doesn't look like an emergency
+    if (!isUserTracker && pinType === "safe") {
+      try {
+        let s = aiSuggestAdd;
+        if (!s) {
+          const allowed = availableItems.map((it) => it.name);
+          s = await analyzePin({
+            description: pinDescription.trim(),
+            imageBase64: aiAddImageB64,
+            imageMime: aiAddImageMime,
+            allowedItems: allowed,
+          });
+          setAiSuggestAdd(s);
+        }
+        if (isRescueRelated(s)) {
+          toast({
+            title: "Looks like an emergency",
+            description: "Please switch to Damaged Location for emergency reports.",
+            variant: "destructive",
+          });
+          setAiGateChecking(false);
+          return;
+        }
+      } catch (e) {
+        console.warn("AI safe-zone check failed; proceeding without gate.", e);
+      }
+    }
 
+    setAiGateChecking(false);
     setIsCreatingPin(true);
     try {
       // Use selected location or map center
@@ -1182,6 +1376,23 @@ export default function HomePage() {
                         {!aiLoadingAdd && aiErrorAdd && (
                           <div className="mt-2 text-xs text-gray-400">{aiErrorAdd}</div>
                         )}
+
+                        {/* Non-tracker rescue gating notice for Damaged */}
+                        {!isUserTracker && pinType === "damaged" && aiSuggestAdd && !isRescueRelated(aiSuggestAdd) && (
+                          <Alert className="mt-2 border-red-300">
+                            <AlertDescription className="text-xs text-red-700">
+                              This report doesn't look like a disaster rescue request. Please add more relevant details or a clear photo.
+                            </AlertDescription>
+                          </Alert>
+                        )}
+                        {/* Non-tracker gating for Safe Zone when description looks like an emergency */}
+                        {!isUserTracker && pinType === "safe" && aiSuggestAdd && isRescueRelated(aiSuggestAdd) && (
+                          <Alert className="mt-2 border-yellow-300">
+                            <AlertDescription className="text-xs text-yellow-800">
+                              This looks like an emergency situation. Please switch to "Damaged Location" or adjust the description/photo.
+                            </AlertDescription>
+                          </Alert>
+                        )}
                       </div>
                       
                       <div>
@@ -1294,9 +1505,19 @@ export default function HomePage() {
                         <Button
                           onClick={handleCreatePin}
                           className="flex-1"
-                          disabled={isCreatingPin}
+                          disabled={
+                            isCreatingPin ||
+                            aiGateChecking ||
+                            (!isUserTracker && pinType === "damaged" && !!aiSuggestAdd && !isRescueRelated(aiSuggestAdd)) ||
+                            (!isUserTracker && pinType === "safe" && !!aiSuggestAdd && isRescueRelated(aiSuggestAdd))
+                          }
                         >
-                          {isCreatingPin ? (
+                          {aiGateChecking ? (
+                            <div className="flex items-center gap-2">
+                              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                              Validating...
+                            </div>
+                          ) : isCreatingPin ? (
                             <div className="flex items-center gap-2">
                               <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                               Creating...
@@ -1658,9 +1879,21 @@ export default function HomePage() {
                             <span>{pin.createdAt.toLocaleString()}</span>
                           </div>
                         </div>
-                        <Button size="sm" variant="outline">
-                          Select
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              showRouteToPin(pin);
+                            }}
+                          >
+                            <Navigation className="w-3 h-3 mr-1" /> Route
+                          </Button>
+                          <Button size="sm" variant="outline">
+                            Select
+                          </Button>
+                        </div>
                       </div>
                     </CardContent>
                   </Card>
@@ -1681,6 +1914,22 @@ export default function HomePage() {
             <div className="space-y-4">
               {/* Pin Details */}
               <div className="space-y-2 border-b pb-4">
+                <div className="flex gap-2 justify-end">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => pinToConfirm && showRouteToPin(pinToConfirm)}
+                  >
+                    <Navigation className="w-3 h-3 mr-1" /> Show Route
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => clearRoute()}
+                  >
+                    Clear Route
+                  </Button>
+                </div>
                 <div>
                   <Label className="text-sm font-medium text-gray-500">Phone</Label>
                   <p className="text-sm">{pinToConfirm.phone}</p>
