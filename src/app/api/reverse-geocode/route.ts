@@ -91,7 +91,9 @@ export async function POST(req: NextRequest) {
 
     // Extract address components
     const address = data.address
-    const displayName = data.display_name || buildAddressString(address)
+
+    // Build formatted address (always use buildAddressString for consistency)
+    const displayName = buildAddressString(address)
 
     // Build formatted address similar to Google Maps for consistency
     const results = [
@@ -132,39 +134,37 @@ export async function POST(req: NextRequest) {
 
 /**
  * Build a formatted address string from Nominatim address components
+ * Returns only city and state (last two meaningful components)
  */
 function buildAddressString(address: Record<string, any>): string {
-  const parts: string[] = []
+  // Try to find city-like field
+  const city =
+    address.city ||
+    address.town ||
+    address.village ||
+    address.suburb ||
+    address.county ||
+    address.municipality ||
+    address.region ||
+    null
 
-  // Add street address
-  if (address.road || address.street) {
-    if (address.house_number) {
-      parts.push(`${address.house_number} ${address.road || address.street}`)
-    } else {
-      parts.push(address.road || address.street)
-    }
+  // Try to find state-like field
+  const state =
+    address.state ||
+    address.province ||
+    address.region ||
+    address.state_district ||
+    null
+
+  if (!city && !state) {
+    return 'Unknown location'
   }
 
-  // Add city
-  if (address.city) {
-    parts.push(address.city)
-  } else if (address.town) {
-    parts.push(address.town)
-  } else if (address.village) {
-    parts.push(address.village)
+  if (city && state) {
+    return `${city}, ${state}`
   }
 
-  // Add state/province
-  if (address.state) {
-    parts.push(address.state)
-  }
-
-  // Add country
-  if (address.country) {
-    parts.push(address.country)
-  }
-
-  return parts.filter(Boolean).join(', ') || 'Address not found'
+  return city || state || 'Unknown location'
 }
 
 /**

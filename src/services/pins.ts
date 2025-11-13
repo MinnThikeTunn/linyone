@@ -791,9 +791,12 @@ export async function getReverseGeocodedAddress(
       return { success: false, error: data?.error || `HTTP ${response.status}` }
     }
 
+    const address = data.primary_address || 'Address not found'
+    console.log('✅ Geocoded address:', { lat, lng, address })
+    
     return {
       success: true,
-      address: data.primary_address || 'Address not found',
+      address,
     }
   } catch (err) {
     console.error('Error in getReverseGeocodedAddress:', err)
@@ -1202,5 +1205,120 @@ export async function deletePinIfNoItemsRemain(
   } catch (err) {
     console.error(`❌ Error in deletePinIfNoItemsRemain for pin ${pinId}:`, err)
     return { success: false, deleted: false, error: 'Failed to delete pin' }
+  }
+}
+
+/**
+ * Fetch aggregated supply needs grouped by region
+ * Returns: { region, category, unit, totalQuantityNeeded }
+ */
+export async function fetchAggregatedSuppliesByRegion(): Promise<{
+  success: boolean
+  supplies?: Array<{
+    region: string
+    category: string
+    unit: string
+    totalQuantityNeeded: number
+    itemId: string
+  }>
+  error?: string
+}> {
+  try {
+    // Fetch only confirmed pins
+    const { data: confirmedPins, error: pinsError } = await supabase
+      .from('pins')
+      .select('id, latitude, longitude')
+      .eq('status', 'confirmed')
+
+    if (pinsError) {
+      console.error('Error fetching confirmed pins:', pinsError)
+      return { success: false, error: pinsError.message }
+    }
+
+    if (!confirmedPins || confirmedPins.length === 0) {
+      return { success: true, supplies: [] }
+    }
+
+    // Fetch pin items with item details
+    const pinIds = confirmedPins.map((p: any) => p.id)
+    const { data: pinItemsData, error: pinItemsError } = await supabase
+      .from('pin_items')
+      .select('pin_id, item_id, remaining_qty, items(id, name, category, unit)')
+      .in('pin_id', pinIds)
+
+    if (pinItemsError) {
+      console.error('Error fetching pin items:', pinItemsError)
+      return { success: false, error: pinItemsError.message }
+    }
+
+    if (!pinItemsData || pinItemsData.length === 0) {
+      return { success: true, supplies: [] }
+    }
+
+    // Build a map of pins to their coordinates
+    const pinCoordinatesMap: { [pinId: string]: { lat: number; lng: number } } = {}
+    confirmedPins.forEach((pin: any) => {
+      pinCoordinatesMap[pin.id] = {
+        lat: parseFloat(pin.latitude),
+        lng: parseFloat(pin.longitude),
+      }
+    })
+
+    // Group pin items by their pin_id to geocode regions
+    const pinItemsByPin: { [pinId: string]: any[] } = {}
+    pinItemsData.forEach((pi: any) => {
+      if (!pinItemsByPin[pi.pin_id]) {
+        pinItemsByPin[pi.pin_id] = []
+      }
+      pinItemsByPin[pi.pin_id].push(pi)
+    })
+
+    // Geocode each pin to get its region
+    const pinRegionMap: { [pinId: string]: string } = {}
+    await Promise.all(
+      Object.keys(pinItemsByPin).map(async (pinId) => {
+        const coords = pinCoordinatesMap[pinId]
+        if (coords && typeof coords.lat === 'number' && typeof coords.lng === 'number' &&
+            !isNaN(coords.lat) && !isNaN(coords.lng) &&
+            coords.lat >= -90 && coords.lat <= 90 &&
+            coords.lng >= -180 && coords.lng <= 180) {
+          const geoResult = await getReverseGeocodedAddress(coords.lat, coords.lng)
+          pinRegionMap[pinId] = geoResult.success && geoResult.address ? geoResult.address : 'Unknown Region'
+        } else {
+          pinRegionMap[pinId] = 'Unknown Region'
+        }
+      })
+    )
+
+    // Aggregate supplies: group by (region, category, unit, item_id) and sum remaining_qty
+    const aggregatedMap: { [key: string]: { region: string; category: string; unit: string; itemId: string; totalQuantityNeeded: number } } = {}
+
+    pinItemsData.forEach((pi: any) => {
+      const region = pinRegionMap[pi.pin_id] || 'Unknown Region'
+      const category = pi.items?.category || 'Unknown Category'
+      const unit = pi.items?.unit || 'Unknown Unit'
+      const itemId = pi.item_id || 'unknown'
+      const key = `${region}|${category}|${unit}|${itemId}`
+
+      if (!aggregatedMap[key]) {
+        aggregatedMap[key] = {
+          region,
+          category,
+          unit,
+          itemId,
+          totalQuantityNeeded: 0,
+        }
+      }
+      aggregatedMap[key].totalQuantityNeeded += pi.remaining_qty || 0
+    })
+
+    // Convert to array and sort by region
+    const supplies = Object.values(aggregatedMap).sort((a, b) => a.region.localeCompare(b.region))
+
+    console.log(`✅ Fetched aggregated supplies for ${supplies.length} items across regions`)
+    return { success: true, supplies }
+  } catch (err) {
+    console.error('Error in fetchAggregatedSuppliesByRegion:', err)
+    return { success: false, error: 'Failed to fetch aggregated supplies' }
   }
 }

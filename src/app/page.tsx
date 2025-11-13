@@ -484,6 +484,48 @@ export default function HomePage() {
       );
 
       if (result.success && result.pin) {
+        console.log('✅ Pin created:', result.pin.id);
+
+        // If user is a tracker and has selected items, create pin_items
+        if (isUserTracker && trackerSelectedItems.size > 0) {
+          console.log('📝 Tracker creating pin items:', trackerSelectedItems);
+          
+          const itemsToCreate = Array.from(trackerSelectedItems.entries()).map(([itemId, quantity]) => ({
+            item_id: itemId,
+            requested_qty: quantity,
+          }));
+
+          const itemsResult = await createPinItems(result.pin.id, itemsToCreate);
+          
+          if (!itemsResult.success) {
+            console.error('❌ Failed to create pin items:', itemsResult.error);
+            toast({
+              title: "Warning",
+              description: `Pin created but items not recorded: ${itemsResult.error}`,
+              variant: "destructive",
+            });
+          } else {
+            console.log('✅ Pin items created successfully');
+            toast({
+              title: "Success",
+              description: "Pin created with requested items",
+            });
+          }
+          
+          // Reset tracker items
+          setTrackerSelectedItems(new Map());
+        } else if (isUserTracker) {
+          toast({
+            title: "Success",
+            description: "Pin created (no items selected)",
+          });
+        } else {
+          toast({
+            title: "Success",
+            description: "Pin created successfully",
+          });
+        }
+
         // Add new pin to local state
         setPins([result.pin, ...pins]);
 
@@ -531,65 +573,6 @@ export default function HomePage() {
     } finally {
       setIsCreatingPin(false);
     }
-  };
-
-  const handleConfirmPin = async (pinId: string) => {
-    try {
-      // Verify user is authenticated and is a tracker before attempting confirmation
-      if (!user?.id) {
-        toast({
-          title: "Error",
-          description: "You must be logged in to confirm pins",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      if (!isUserTracker) {
-        toast({
-          title: "Error",
-          description: "Only trackers can confirm pins",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      const result = await updatePinStatus(
-        pinId,
-        "confirmed",
-        userOrgMemberId || undefined,
-        user.id
-      );
-
-      if (result.success) {
-        setPins(
-          pins.map((pin) =>
-            pin.id === pinId ? { ...pin, status: "confirmed" } : pin
-          )
-        );
-        toast({
-          title: "Success",
-          description: "Pin confirmed successfully",
-        });
-      } else {
-        toast({
-          title: "Error",
-          description: result.error || "Failed to confirm pin",
-          variant: "destructive",
-        });
-      }
-    } catch (error) {
-      console.error("Error confirming pin:", error);
-      toast({
-        title: "Error",
-        description: "Failed to confirm pin",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleDenyPin = (pinId: string) => {
-    setPins(pins.filter((pin) => pin.id !== pinId));
   };
 
   const handleMarkCompleted = async (pinId: string) => {
@@ -1321,27 +1304,9 @@ export default function HomePage() {
                 )}
               </div>
               
-              {/* Action buttons */}
+              {/* Action buttons - REMOVED: Confirm and Deny buttons no longer needed */}
               <div className="flex gap-2">
-                {isUserTracker && selectedPin.status === "pending" && (
-                  <>
-                    <Button
-                      onClick={() => handleConfirmPin(selectedPin.id)}
-                      className="flex-1"
-                    >
-                      <Check className="w-4 h-4 mr-2" />
-                      Confirm
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => handleDenyPin(selectedPin.id)}
-                      className="flex-1"
-                    >
-                      <X className="w-4 h-4 mr-2" />
-                      Deny
-                    </Button>
-                  </>
-                )}
+                {/* Pins are automatically confirmed when created by trackers/organizations */}
 
                 {userRole === "supply_volunteer" &&
                   selectedPin.status === "confirmed" &&
