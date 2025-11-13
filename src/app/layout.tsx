@@ -7,6 +7,7 @@ import { AuthProvider } from "@/hooks/use-auth";
 import { Navigation } from "@/components/navigation";
 import { AlertToToastBridge } from "@/components/alert-to-toast-bridge";
 import { NotificationToasts } from "@/components/notification-toasts";
+import { LiveAlerts } from "@/components/alerts/live-alerts";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -54,6 +55,10 @@ export default function RootLayout({
           <AuthProvider>
             <div className="min-h-screen flex flex-col">
               <Navigation />
+              {/* Global compact alerts feed (can be hidden or styled differently) */}
+              {/* <div className="px-4 py-2 bg-gray-50 border-b">
+                <LiveAlerts className="hidden lg:block" />
+              </div> */}
               <main className="flex-1">
                 {children}
               </main>

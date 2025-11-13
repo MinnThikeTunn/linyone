@@ -570,6 +570,7 @@ export default function HomePage() {
         toast({
           title: "Success",
           description: "Pin confirmed successfully",
+          variant: "success"
         });
       } else {
         toast({
