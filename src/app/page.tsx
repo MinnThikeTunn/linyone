@@ -1459,18 +1459,6 @@ export default function HomePage() {
                   <Label className="text-sm font-medium text-gray-500">Description</Label>
                   <p className="text-sm">{pinToConfirm.description}</p>
                 </div>
-                {pinToConfirm.image && (
-                  <div>
-                    <Label className="text-sm font-medium text-gray-500">Image</Label>
-                    <div className="mt-1 w-full h-48 bg-gray-100 rounded-lg overflow-hidden">
-                      <img
-                        src={pinToConfirm.image}
-                        alt={pinToConfirm.phone}
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
-                  </div>
-                )}
                 <div>
                   <Label className="text-sm font-medium text-gray-500">Reporter</Label>
                   <p className="text-sm">{pinToConfirm.createdBy}</p>
@@ -1479,6 +1467,18 @@ export default function HomePage() {
                   <Label className="text-sm font-medium text-gray-500">Timestamp</Label>
                   <p className="text-sm">{pinToConfirm.createdAt.toLocaleString()}</p>
                 </div>
+                {pinToConfirm.image && (
+                  <div className="pt-2">
+                    <Label className="text-sm font-medium text-gray-500">Photo</Label>
+                    <div className="w-full h-48 bg-gray-100 rounded-lg overflow-hidden mt-1">
+                      <img
+                        src={pinToConfirm.image}
+                        alt="Reported photo"
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Items from Database */}
