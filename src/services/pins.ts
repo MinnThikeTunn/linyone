@@ -680,9 +680,12 @@ export async function getReverseGeocodedAddress(
       return { success: false, error: data?.error || `HTTP ${response.status}` }
     }
 
+    const address = data.primary_address || 'Address not found'
+    console.log('✅ Geocoded address:', { lat, lng, address })
+    
     return {
       success: true,
-      address: data.primary_address || 'Address not found',
+      address,
     }
   } catch (err) {
     console.error('Error in getReverseGeocodedAddress:', err)

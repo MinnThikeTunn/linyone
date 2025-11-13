@@ -484,6 +484,48 @@ export default function HomePage() {
       );
 
       if (result.success && result.pin) {
+        console.log('✅ Pin created:', result.pin.id);
+
+        // If user is a tracker and has selected items, create pin_items
+        if (isUserTracker && trackerSelectedItems.size > 0) {
+          console.log('📝 Tracker creating pin items:', trackerSelectedItems);
+          
+          const itemsToCreate = Array.from(trackerSelectedItems.entries()).map(([itemId, quantity]) => ({
+            item_id: itemId,
+            requested_qty: quantity,
+          }));
+
+          const itemsResult = await createPinItems(result.pin.id, itemsToCreate);
+          
+          if (!itemsResult.success) {
+            console.error('❌ Failed to create pin items:', itemsResult.error);
+            toast({
+              title: "Warning",
+              description: `Pin created but items not recorded: ${itemsResult.error}`,
+              variant: "destructive",
+            });
+          } else {
+            console.log('✅ Pin items created successfully');
+            toast({
+              title: "Success",
+              description: "Pin created with requested items",
+            });
+          }
+          
+          // Reset tracker items
+          setTrackerSelectedItems(new Map());
+        } else if (isUserTracker) {
+          toast({
+            title: "Success",
+            description: "Pin created (no items selected)",
+          });
+        } else {
+          toast({
+            title: "Success",
+            description: "Pin created successfully",
+          });
+        }
+
         // Add new pin to local state
         setPins([result.pin, ...pins]);
 
@@ -508,11 +550,6 @@ export default function HomePage() {
             zoom: 14,
           });
         }
-
-        toast({
-          title: "Success",
-          description: "Pin created successfully",
-        });
       } else {
         toast({
           title: "Error",
