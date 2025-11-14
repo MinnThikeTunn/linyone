@@ -305,7 +305,7 @@ export default function AdminPage() {
 
   const handleRegisterOrganization = async () => {
     if (!newOrg.name || !newOrg.email || !newOrg.phone || !newOrg.region) {
-      alert("Please fill all required fields");
+      alert(t('admin.fillRequired'));
       return;
     }
 
@@ -330,7 +330,7 @@ export default function AdminPage() {
 
       if (error) {
         console.error('Error creating organization:', error);
-        alert('Error creating organization: ' + error.message);
+        alert(t('admin.createError') + ': ' + error.message);
         return;
       }
 
@@ -362,11 +362,11 @@ export default function AdminPage() {
           funding: "",
           status: "pending",
         });
-        alert('Organization registered successfully!');
+        alert(t('admin.createSuccess'));
       }
     } catch (error) {
       console.error('Error creating organization:', error);
-      alert('Error creating organization');
+      alert(t('admin.createError'));
     }
   };
 
@@ -390,7 +390,7 @@ export default function AdminPage() {
 
       if (error) {
         console.error('Error updating organization:', error);
-        alert('Error updating organization: ' + error.message);
+        alert(t('admin.updateError') + ': ' + error.message);
         return;
       }
 
@@ -420,10 +420,10 @@ export default function AdminPage() {
         funding: "",
         status: "pending",
       });
-      alert('Organization updated successfully!');
+      alert(t('admin.updateSuccess'));
     } catch (error) {
       console.error('Error updating organization:', error);
-      alert('Error updating organization');
+      alert(t('admin.updateError'));
     }
   };
 

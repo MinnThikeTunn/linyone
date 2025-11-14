@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -138,17 +139,19 @@ export default function SafetyPage() {
   const { user, isAuthenticated } = useAuth()
   const [modules, setModules] = useState<SafetyModule[]>(safetyModules)
   const [selectedModule, setSelectedModule] = useState<SafetyModule | null>(null)
+  const router = useRouter()
 
   const handleStartModule = (moduleId: string) => {
     const selectedModuleData = modules.find(m => m.id === moduleId)
     if (!selectedModuleData) return
 
     if (selectedModuleData.isLocked) {
-      alert('This module is locked. Please complete the prerequisites first.')
+      alert(t('safety.moduleLocked'))
       return
     }
 
-    setSelectedModule(selectedModuleData)
+    // Navigate to the lesson page with the module ID
+    router.push(`/safety/lesson/${moduleId}`)
   }
 
   const handleCompleteModule = (moduleId: string) => {
