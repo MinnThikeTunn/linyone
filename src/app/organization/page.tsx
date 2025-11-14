@@ -741,59 +741,59 @@ export default function OrganizationPage() {
     <div className="min-h-screen bg-gray-50 p-4">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">
+        <div className="mb-6 sm:mb-8">
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">
             {t('org.title')}
           </h1>
-          <p className="text-gray-600">Manage volunteers and coordinate relief efforts</p>
+          <p className="text-sm sm:text-base text-gray-600">Manage volunteers and coordinate relief efforts</p>
         </div>
 
         {/* Quick Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 lg:gap-6 mb-8">
           <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Active Volunteers</p>
-                  <p className="text-2xl font-bold text-green-600">{activeVolunteers}</p>
+            <CardContent className="p-4 sm:p-6">
+              <div className="flex items-center justify-between gap-2 sm:gap-4">
+                <div className="min-w-0">
+                  <p className="text-xs sm:text-sm font-medium text-gray-600 truncate">Active Volunteers</p>
+                  <p className="text-xl sm:text-2xl font-bold text-green-600">{activeVolunteers}</p>
                 </div>
-                <Users className="w-8 h-8 text-green-600" />
+                <Users className="w-6 sm:w-8 h-6 sm:h-8 text-green-600 shrink-0" />
               </div>
             </CardContent>
           </Card>
 
           <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Pending Approval</p>
-                  <p className="text-2xl font-bold text-yellow-600">{pendingVolunteers}</p>
+            <CardContent className="p-4 sm:p-6">
+              <div className="flex items-center justify-between gap-2 sm:gap-4">
+                <div className="min-w-0">
+                  <p className="text-xs sm:text-sm font-medium text-gray-600 truncate">Pending Approval</p>
+                  <p className="text-xl sm:text-2xl font-bold text-yellow-600">{pendingVolunteers}</p>
                 </div>
-                <Clock className="w-8 h-8 text-yellow-600" />
+                <Clock className="w-6 sm:w-8 h-6 sm:h-8 text-yellow-600 shrink-0" />
               </div>
             </CardContent>
           </Card>
 
           <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Help Requests</p>
-                  <p className="text-2xl font-bold text-orange-600">{pendingRequests}</p>
+            <CardContent className="p-4 sm:p-6">
+              <div className="flex items-center justify-between gap-2 sm:gap-4">
+                <div className="min-w-0">
+                  <p className="text-xs sm:text-sm font-medium text-gray-600 truncate">Help Requests</p>
+                  <p className="text-xl sm:text-2xl font-bold text-orange-600">{pendingRequests}</p>
                 </div>
-                <AlertTriangle className="w-8 h-8 text-orange-600" />
+                <AlertTriangle className="w-6 sm:w-8 h-6 sm:h-8 text-orange-600 shrink-0" />
               </div>
             </CardContent>
           </Card>
 
           <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Partnerships</p>
-                  <p className="text-2xl font-bold text-purple-600">{activeCollaborations}</p>
+            <CardContent className="p-4 sm:p-6">
+              <div className="flex items-center justify-between gap-2 sm:gap-4">
+                <div className="min-w-0">
+                  <p className="text-xs sm:text-sm font-medium text-gray-600 truncate">Partnerships</p>
+                  <p className="text-xl sm:text-2xl font-bold text-purple-600">{activeCollaborations}</p>
                 </div>
-                <Handshake className="w-8 h-8 text-purple-600" />
+                <Handshake className="w-6 sm:w-8 h-6 sm:h-8 text-purple-600 shrink-0" />
               </div>
             </CardContent>
           </Card>
@@ -802,19 +802,19 @@ export default function OrganizationPage() {
         {/* Help Requests - Main Feature */}
         <Card className="mb-8">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-2xl">
-              <AlertTriangle className="w-6 h-6 text-orange-500" />
+            <CardTitle className="flex items-center gap-2 text-lg sm:text-xl lg:text-2xl">
+              <AlertTriangle className="w-5 sm:w-6 h-5 sm:h-6 text-orange-500 shrink-0" />
               Help Requests (Confirmed Pins)
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
               {confirmedHelpRequests.map((request) => (
-                <Card key={request.id} className="p-4 hover:shadow-md transition-shadow">
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
-                        <h3 className="font-medium text-lg">{request.title}</h3>
+                <Card key={request.id} className="p-3 sm:p-4 hover:shadow-md transition-shadow">
+                  <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3 sm:gap-4">
+                    <div className="flex-1 w-full">
+                      <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-2">
+                        <h3 className="font-medium text-base sm:text-lg break-all">{request.title}</h3>
                         <Badge className={getStatusColor(request.status)}>
                           {request.status === 'partially_accepted' ? 'Partially Accepted' : request.status}
                         </Badge>
@@ -823,30 +823,32 @@ export default function OrganizationPage() {
                         <p className="text-sm text-gray-600 mb-3">{request.description}</p>
                       )}
                       
-                      <div className="flex items-center gap-4 text-xs text-gray-500 mb-3">
+                      <div className="flex flex-col sm:flex-row flex-wrap gap-2 sm:gap-4 text-xs text-gray-500 mb-3">
                         <div className="flex items-center gap-1">
-                          <MapPin className="w-3 h-3" />
-                          {request.location}
+                          <MapPin className="w-3 h-3 shrink-0" />
+                          <span className="break-all">{request.location}</span>
                         </div>
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1 shrink-0">
                           <Clock className="w-3 h-3" />
-                          {request.requestedAt.toLocaleString()}
+                          <span className="whitespace-nowrap">{request.requestedAt.toLocaleString()}</span>
                         </div>
-                        <div>Requested by: {request.requestedBy}</div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <span className="whitespace-nowrap">Requested by: {request.requestedBy}</span>
+                        </div>
                       </div>
 
                       {/* Required Items Summary */}
-                      <div className="mt-3 p-3 bg-gray-50 rounded-lg">
+                      <div className="mt-3 p-3 bg-gray-50 rounded-lg overflow-x-auto">
                         <div className="text-xs font-medium text-gray-700 mb-2">Required Items:</div>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
                           {request.requiredItems.map((item, idx) => {
                             const remaining = getRemainingQuantity(item)
                             const accepted = item.quantity - remaining
                             return (
-                              <div key={idx} className="text-xs">
+                              <div key={idx} className="text-xs min-w-0">
                                 <div className="flex items-center gap-1">
-                                  <Package className="w-3 h-3 text-gray-500" />
-                                  <span className="font-medium">{item.category}:</span>
+                                  <Package className="w-3 h-3 text-gray-500 shrink-0" />
+                                  <span className="font-medium truncate">{item.category}:</span>
                                 </div>
                                 <div className="ml-4 text-gray-600">
                                   {remaining} {item.unit} {accepted > 0 && `(${accepted} accepted)`}
@@ -858,23 +860,25 @@ export default function OrganizationPage() {
                       </div>
                     </div>
                     
-                    <div className="flex flex-col gap-3 items-center justify-center">
+                    <div className="flex flex-col sm:flex-row lg:flex-col gap-2 sm:gap-3 w-full sm:w-auto lg:w-auto items-stretch sm:items-center lg:items-stretch">
                       <Button 
                         size="default" 
                         variant="outline"
                         onClick={() => handleViewRequest(request)}
-                        className="flex items-center gap-2 min-w-[140px]"
+                        className="flex items-center justify-center gap-2 text-xs sm:text-sm"
                       >
                         <Eye className="w-4 h-4" />
-                        View Details
+                        <span className="hidden sm:inline">View Details</span>
+                        <span className="inline sm:hidden">Details</span>
                       </Button>
                       <Button 
                         size="default"
                         onClick={() => handleViewOnMap(request)}
-                        className="flex items-center gap-2 min-w-[140px]"
+                        className="flex items-center justify-center gap-2 text-xs sm:text-sm"
                       >
                         <Navigation className="w-4 h-4" />
-                        View on Map
+                        <span className="hidden sm:inline">View on Map</span>
+                        <span className="inline sm:hidden">Map</span>
                       </Button>
                     </div>
                   </div>
@@ -892,22 +896,27 @@ export default function OrganizationPage() {
 
         {/* Secondary Features - Tabs */}
         <Tabs defaultValue="volunteers" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="volunteers" className="flex items-center gap-2">
+          <TabsList className="grid w-full grid-cols-2 lg:grid-cols-4 gap-1 lg:gap-0">
+            <TabsTrigger value="volunteers" className="flex items-center justify-center gap-1 text-xs sm:text-sm">
               <Users className="w-4 h-4" />
-              {t('org.volunteerManagement')}
+              <span className="hidden sm:inline">{t('org.volunteerManagement')}</span>
+              <span className="inline sm:hidden">Volunteers</span>
             </TabsTrigger>
-            <TabsTrigger value="supplies" className="flex items-center gap-2">
+            <TabsTrigger value="supplies" className="flex items-center justify-center gap-1 text-xs sm:text-sm">
               <Warehouse className="w-4 h-4" />
-              Supply Management
+              <span className="hidden md:inline">Supplies</span>
+              <span className="inline md:hidden">Supply</span>
             </TabsTrigger>
-            <TabsTrigger value="supplies-needed" className="flex items-center gap-2">
+            <TabsTrigger value="supplies-needed" className="flex items-center justify-center gap-1 text-xs sm:text-sm">
               <Package className="w-4 h-4" />
-              Total Needed Supplies
+              <span className="hidden lg:inline">Needed Supplies</span>
+              <span className="hidden sm:inline lg:hidden">Needed</span>
+              <span className="inline sm:hidden">Needed</span>
             </TabsTrigger>
-            <TabsTrigger value="collaboration" className="flex items-center gap-2">
+            <TabsTrigger value="collaboration" className="flex items-center justify-center gap-1 text-xs sm:text-sm">
               <Handshake className="w-4 h-4" />
-              {t('org.collaboration')}
+              <span className="hidden sm:inline">{t('org.collaboration')}</span>
+              <span className="inline sm:hidden">Partners</span>
             </TabsTrigger>
           </TabsList>
 
@@ -1242,18 +1251,19 @@ export default function OrganizationPage() {
                 </div>
               </CardHeader>
               <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Category</TableHead>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Quantity</TableHead>
-                      <TableHead>Location</TableHead>
-                      <TableHead>Expiry Date</TableHead>
-                      <TableHead>Last Updated</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Category</TableHead>
+                        <TableHead>Name</TableHead>
+                        <TableHead>Quantity</TableHead>
+                        <TableHead>Location</TableHead>
+                        <TableHead>Expiry Date</TableHead>
+                        <TableHead>Last Updated</TableHead>
+                        <TableHead>Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
                   <TableBody>
                     {supplies.length === 0 ? (
                       <TableRow>
@@ -1334,6 +1344,7 @@ export default function OrganizationPage() {
                     )}
                   </TableBody>
                 </Table>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -1370,15 +1381,16 @@ export default function OrganizationPage() {
                 </div>
               </CardHeader>
               <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-blue-50 hover:bg-blue-100 border-b-2 border-blue-200">
-                      <TableHead className="font-bold text-gray-800">Region</TableHead>
-                      <TableHead className="font-bold text-gray-800">Item Name</TableHead>
-                      <TableHead className="font-bold text-gray-800">Unit</TableHead>
-                      <TableHead className="font-bold text-gray-800 text-right">Total Quantity Needed</TableHead>
-                    </TableRow>
-                  </TableHeader>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-blue-50 hover:bg-blue-100 border-b-2 border-blue-200">
+                        <TableHead className="font-bold text-gray-800">Region</TableHead>
+                        <TableHead className="font-bold text-gray-800">Item Name</TableHead>
+                        <TableHead className="font-bold text-gray-800">Unit</TableHead>
+                        <TableHead className="font-bold text-gray-800 text-right">Total Quantity Needed</TableHead>
+                      </TableRow>
+                    </TableHeader>
                   <TableBody>
                     {(() => {
                       // Filter aggregated supplies by region if selected
@@ -1439,6 +1451,7 @@ export default function OrganizationPage() {
                     })()}
                   </TableBody>
                 </Table>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -1456,7 +1469,7 @@ export default function OrganizationPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4">
                   {partnerOrgs.map((org) => (
                     <Card key={org.id}>
                       <CardContent className="p-4">
