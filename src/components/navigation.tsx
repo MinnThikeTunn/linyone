@@ -1700,8 +1700,308 @@ export function Navigation() {
             )}
           </div>
 
-          {/* Mobile menu button */}
-          <div className="md:hidden">
+          {/* Mobile menu button and notification */}
+          <div className="md:hidden flex items-center gap-2">
+            {/* Mobile Notifications - only when authenticated */}
+            {isAuthenticated && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="sm" className="relative">
+                    <Bell className="w-5 h-5" />
+                    { (notifications.filter((n) => !n.read).length + pendingRequests.length) > 0 && (
+                      <Badge variant="destructive" className="absolute -top-1 -right-1 min-w-5 h-5 flex items-center justify-center text-xs">
+                        {(notifications.filter((n) => !n.read).length + pendingRequests.length) > 99 ? '99+' : (notifications.filter((n) => !n.read).length + pendingRequests.length)}
+                      </Badge>
+                    )}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="w-[95vw] sm:w-96 max-h-[480px] overflow-y-auto ml-[2.5vw] sm:ml-0" align="end">
+                  <div className="p-0">
+                  {/* Header */}
+                  <div className="p-4 border-b border-gray-200 bg-gray-50">
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-semibold text-lg text-gray-900">Notification Center</h3>
+                      {(notifications.filter((n) => !n.read).length + pendingRequests.length) > 0 && (
+                        <div className="flex items-center gap-2">
+                          <Badge variant="secondary" className="text-xs">
+                            {(notifications.filter((n) => !n.read).length + pendingRequests.length)} unread
+                          </Badge>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="p-1 h-6 hover:bg-red-50 text-red-600"
+                            title="Delete all notifications"
+                            onClick={async (e) => {
+                              e.preventDefault(); e.stopPropagation();
+                              if (!user?.id) return
+                              try {
+                                await deleteAllNotifications(user.id)
+                                setNotifications([])
+                                setPendingRequests([])
+                              } catch (err) {
+                                console.error('delete all failed', err)
+                              }
+                            }}
+                          >
+                            <XIcon className="w-3 h-3" />
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Notifications List */}
+                  <div className="max-h-80 overflow-y-auto">
+                    {notifications.filter((notification) => {
+                      // Filter out deleted notification IDs
+                      if (deletedNotificationIdsRef.current.has(notification.id)) {
+                        return false
+                      }
+                      // CRITICAL: Filter out ALL family_request notifications from the notifications list
+                      // They should only appear in the "Family Requests" section below
+                      if (notification.type === 'family_request') {
+                        return false
+                      }
+                      return true
+                    }).map((notification) => {
+                      // Map backend notification to UI shape (fallbacks for missing fields)
+                      const payload = (notification.payload || {}) as any
+                      const uiType = notification.type
+                      // Determine icon & color by type
+                      const iconMap: Record<string, any> = {
+                        family_request: UserCheck,
+                        family_request_accepted: Check,
+                        family_request_rejected: XIcon,
+                        safety_check: ShieldCheck,
+                        job_offer: Briefcase,
+                        family_verification: User,
+                        activity_hosting: Activity,
+                      }
+                      const colorMap: Record<string, string> = {
+                        family_request: 'text-blue-600',
+                        family_request_accepted: 'text-green-600',
+                        family_request_rejected: 'text-red-600',
+                        safety_check: 'text-red-500',
+                        job_offer: 'text-blue-500',
+                        family_verification: 'text-green-500',
+                        activity_hosting: 'text-blue-500',
+                      }
+                      const IconComponent = iconMap[uiType] || Bell
+                      const colorClass = colorMap[uiType] || 'text-gray-500'
+                      const title = notification.title || payload.title || uiType.replace(/_/g,' ')
+                      const body = notification.body || payload.body || ''
+                      const createdAt = notification.created_at ? new Date(notification.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''
+                      return (
+                        <div
+                          key={notification.id}
+                          className={`p-4 border-b border-gray-100 hover:bg-gray-50 transition-colors ${!notification.read ? 'bg-blue-50' : ''}`}
+                        >
+                          <div className="flex items-start space-x-3">
+                            <div className={`w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center shrink-0 ${colorClass}`}>
+                              <IconComponent className="w-4 h-4" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-start justify-between">
+                                <div className="flex-1">
+                                  <p className="text-sm font-medium text-gray-900">{title}</p>
+                                  {body && <p className="text-sm text-gray-600 mt-1">{body}</p>}
+                                  {createdAt && <p className="text-xs text-gray-400 mt-1">{createdAt}</p>}
+                                </div>
+                                <div className="flex items-center gap-2 mt-1">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="p-1 h-6 hover:bg-red-50 text-red-600"
+                                    title="Delete notification"
+                                    onClick={async (e) => {
+                                      e.preventDefault(); e.stopPropagation();
+                                      try {
+                                        await deleteNotification(notification.id)
+                                        setNotifications((prev) => prev.filter((n) => n.id !== notification.id))
+                                      } catch (err) {
+                                        console.error('delete notification failed', err)
+                                      }
+                                    }}
+                                  >
+                                    <XIcon className="w-3 h-3" />
+                                  </Button>
+                                  {!notification.read && (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="p-1 h-6"
+                                      onClick={async (e) => {
+                                        e.preventDefault(); e.stopPropagation();
+                                        try {
+                                          await markNotificationRead(notification.id)
+                                          setNotifications((prev) => prev.map((n) => n.id === notification.id ? { ...n, read: true } : n))
+                                        } catch (err) {
+                                          console.error('single mark read failed', err)
+                                        }
+                                      }}
+                                      title="Mark as read"
+                                    >
+                                      <Check className="w-3 h-3" />
+                                    </Button>
+                                  )}
+                                </div>
+                              </div>
+                              {/* Render appropriate action buttons based on notification type */}
+                              {/* Keep action buttons visible and allow multiple clicks until read */}
+                              {!notification.read && renderActionButtons({ ...payload, id: notification.id, type: uiType, buttonType: (payload.buttonType || uiType) })}
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+
+                    {/* Family Requests Section */}
+                    {(pendingRequests.length > 0 || acceptedRequests.size > 0) && (
+                      <>
+                        <div className="p-3 bg-gray-50 border-b border-gray-200">
+                          <h4 className="font-medium text-sm text-gray-700">Family Requests</h4>
+                        </div>
+                        {/* Show pending requests with Accept/Decline buttons */}
+                        {pendingRequests.map((req: any) => (
+                          <div
+                            key={req.id}
+                            className="p-4 border-b border-gray-100 hover:bg-gray-50 transition-colors bg-blue-50"
+                          >
+                            <div className="flex items-start space-x-3">
+                              <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center shrink-0 text-blue-600">
+                                <UserCheck className="w-4 h-4" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-start justify-between">
+                                  <div className="flex-1">
+                                    <p className="text-sm font-medium text-gray-900">{req.sender?.name || 'Unknown User'}</p>
+                                    <p className="text-sm text-gray-600 mt-1">Wants to add you as <span className="font-semibold text-blue-700">{req.relation}</span></p>
+                                    <p className="text-xs text-gray-400 mt-1">{req.created_at ? new Date(req.created_at).toLocaleDateString() : 'Recently'}</p>
+                                  </div>
+                                  <div className="w-2 h-2 bg-blue-500 rounded-full shrink-0 mt-2"></div>
+                                </div>
+                                <div className="flex gap-2 mt-3">
+                                  <Button 
+                                    size="sm" 
+                                    className="bg-green-600 hover:bg-green-700 text-white text-xs"
+                                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleApproveRequest(req.id) }}
+                                    disabled={processingRequest?.id === req.id}
+                                  >
+                                    {processingRequest?.id === req.id && processingRequest?.action === 'accept' ? (
+                                      <div className="flex items-center">
+                                        <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin mr-1" />
+                                        Accepting...
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-center">
+                                        <Check className="w-3 h-3 mr-1" />
+                                        Accept
+                                      </div>
+                                    )}
+                                  </Button>
+                                  <Button 
+                                    size="sm" 
+                                    variant="outline" 
+                                    className="border-gray-300 text-gray-600 hover:bg-gray-50 text-xs"
+                                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleRejectRequest(req.id) }}
+                                    disabled={processingRequest?.id === req.id}
+                                  >
+                                    {processingRequest?.id === req.id && processingRequest?.action === 'decline' ? (
+                                      <div className="flex items-center">
+                                        <div className="w-3 h-3 border-2 border-gray-600 border-t-transparent rounded-full animate-spin mr-1" />
+                                        Declining...
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-center">
+                                        <XIcon className="w-3 h-3 mr-1" />
+                                        Decline
+                                      </div>
+                                    )}
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                        {/* Show accepted requests with "You have accepted the request" message */}
+                        {Array.from(acceptedRequests.values()).map((req: any) => (
+                          <div
+                            key={req.id}
+                            className="p-4 border-b border-gray-100 hover:bg-gray-50 transition-colors bg-green-50"
+                          >
+                            <div className="flex items-start space-x-3">
+                              <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center shrink-0 text-green-600">
+                                <Check className="w-4 h-4" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-start justify-between">
+                                  <div className="flex-1">
+                                    <p className="text-sm font-medium text-gray-900">{req.sender?.name || 'Unknown User'}</p>
+                                    <p className="text-sm text-gray-600 mt-1">Wants to add you as <span className="font-semibold text-blue-700">{req.relation}</span></p>
+                                    <p className="text-xs text-gray-400 mt-1">{req.created_at ? new Date(req.created_at).toLocaleDateString() : 'Recently'}</p>
+                                  </div>
+                                </div>
+                                <div className="mt-3">
+                                  <p className="text-sm font-medium text-green-700">You have accepted the request</p>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </>
+                    )}
+
+                    {notifications.length === 0 && pendingRequests.length === 0 && acceptedRequests.size === 0 && (
+                      <div className="text-center py-8">
+                        <Bell className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                        <p className="text-sm text-gray-500 font-medium">No notifications</p>
+                        <p className="text-xs text-gray-400 mt-1">You're all caught up!</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Footer */}
+                  <div className="p-3 border-t border-gray-200 bg-gray-50 flex gap-2">
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="flex-1 text-blue-600 hover:text-blue-700 hover:bg-blue-50 font-medium"
+                      onClick={async () => {
+                        if (!user?.id) return
+                        try {
+                          await markAllNotificationsRead(user.id)
+                          setNotifications((prev) => prev.map((n) => ({ ...n, read: true })))
+                        } catch (err) {
+                          console.error('mark all notifications read failed', err)
+                        }
+                      }}
+                    >
+                      Mark all as read
+                    </Button>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="text-red-600 hover:bg-red-50"
+                      onClick={async () => {
+                        if (!user?.id) return
+                        try {
+                          await deleteAllNotifications(user.id)
+                          setNotifications([])
+                          setPendingRequests([])
+                        } catch (err) {
+                          console.error('delete all notifications failed', err)
+                        }
+                      }}
+                      title="Delete all"
+                    >
+                      <XIcon className="w-4 h-4" />
+                    </Button>
+                  </div>
+                  </div>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+            
             <Button
               variant="ghost"
               size="sm"
@@ -1751,7 +2051,7 @@ export function Navigation() {
                 </Button>
                 
                 <Button variant="ghost" size="sm" asChild>
-                  <Link href="/chat">
+                  <Link href="/chat" onClick={() => setMobileMenuOpen(false)}>
                     <MessageCircle className="w-4 h-4 mr-1" />
                     <span className="text-xs">{t('nav.aiChat')}</span>
                   </Link>
@@ -1761,13 +2061,13 @@ export function Navigation() {
                 {!isAuthenticated && (
                   <>
                     <Button variant="ghost" size="sm" asChild>
-                      <Link href="/login">
+                      <Link href="/login" onClick={() => setMobileMenuOpen(false)}>
                         <LogIn className="w-4 h-4 mr-1" />
                         <span className="text-xs">{t('nav.login')}</span>
                       </Link>
                     </Button>
                     <Button size="sm" asChild>
-                      <Link href="/register">
+                      <Link href="/register" onClick={() => setMobileMenuOpen(false)}>
                         <UserPlus className="w-4 h-4 mr-1" />
                         <span className="text-xs">{t('nav.register')}</span>
                       </Link>

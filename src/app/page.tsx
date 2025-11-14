@@ -1760,7 +1760,7 @@ export default function HomePage() {
           </div>
 
           {/* Side Panel */}
-          <div className="space-y-6">
+          <div className="space-y-6 mt-[50px] sm:mt-0">
             {/* Quick Stats */}
             <Card>
               <CardHeader>

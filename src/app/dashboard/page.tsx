@@ -356,6 +356,8 @@ export default function DashboardPage() {
           safety_check_started_at: l.safety_check_started_at,
           safety_check_expires_at: l.safety_check_expires_at,
           lastSeen: new Date(),
+          member: l.member,
+          relation: l.relation,
         }));
         const seen = new Set<string>();
         const deduped = mapped.filter((m: any) => {
@@ -382,7 +384,8 @@ export default function DashboardPage() {
               status: l.safety_status ?? null,
               safety_check_started_at: l.safety_check_started_at,
               safety_check_expires_at: l.safety_check_expires_at,
-              lastSeen: new Date()
+              lastSeen: new Date(),
+              member: l.member,
             }))
             const seen2 = new Set<string>()
             const deduped2 = mapped.filter((m: any) => {
@@ -406,7 +409,9 @@ export default function DashboardPage() {
               status: l.safety_status ?? null,
               safety_check_started_at: l.safety_check_started_at,
               safety_check_expires_at: l.safety_check_expires_at,
-              lastSeen: new Date()
+              lastSeen: new Date(),
+              member: l.member,
+              relation: l.relation,
             }))
             setFamilyMembers(mapped)
           })
@@ -564,7 +569,7 @@ export default function DashboardPage() {
           />
 
           {/* Safety Modules Tab */}
-          <TabsContent value="safety" className="space-y-6">
+          <TabsContent value="safety" className="space-y-6 mt-5">
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -577,7 +582,7 @@ export default function DashboardPage() {
               </CardHeader>
 
               <CardContent>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 ">
                   {safetyModules.map((module) => (
                     <Card key={module.id}>
                       <CardContent className="p-4">

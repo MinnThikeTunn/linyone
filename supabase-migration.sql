@@ -118,6 +118,9 @@ CREATE TABLE public.organizations (
   created_at timestamp with time zone DEFAULT now(),
   password text,
   role text DEFAULT 'Organization'::text,
+  latitude double precision,
+  longitude double precision,
+  image text,
   CONSTRAINT organizations_pkey PRIMARY KEY (id)
 );
 CREATE TABLE public.pin_items (
@@ -188,6 +191,10 @@ CREATE TABLE public.users (
   created_at timestamp with time zone DEFAULT now(),
   is_admin boolean DEFAULT false,
   total_points integer DEFAULT 0,
+  address text,
+  latitude double precision,
+  longitude double precision,
+  image text,
   CONSTRAINT users_pkey PRIMARY KEY (id)
 );
 
