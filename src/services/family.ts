@@ -401,6 +401,39 @@ export async function cancelFamilyRequest(requestId: string) {
   }
 }
 
+// ===============================
+// Last Seen Location (users)
+// ===============================
+
+export type LastSeenRecord = {
+  user_id: string
+  lat?: number | null
+  lng?: number | null
+  address?: string | null
+  last_seen_at?: string | null
+}
+
+export async function fetchLastSeenForUsers(userIds: string[]): Promise<Record<string, LastSeenRecord>> {
+  const out: Record<string, LastSeenRecord> = {}
+  try {
+    if (!userIds || userIds.length === 0) return out
+    const { data, error } = await supabase
+      .from('user_last_seen')
+      .select('user_id, lat, lng, address, last_seen_at')
+      .in('user_id', userIds)
+    if (error) {
+      console.error('fetchLastSeenForUsers error', error)
+      return out
+    }
+    for (const row of (data || [])) {
+      out[row.user_id] = row as LastSeenRecord
+    }
+  } catch (err) {
+    console.error('fetchLastSeenForUsers unexpected', err)
+  }
+  return out
+}
+
 export async function approveFamilyRequest(requestId: string) {
   try {
     // Get the request details

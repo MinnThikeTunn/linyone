@@ -34,6 +34,7 @@ import { supabase } from '@/lib/supabase'
 
 import { mockSafetyModules } from "@/data/mockSafetyModules";
 import Link from "next/link";
+import { LiveAlerts } from "@/components/alerts/live-alerts";
 
 interface FamilyMember {
   id: string;
@@ -242,19 +243,28 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-  <div className="max-w-360 mx-auto px-4 sm:px-6 lg:px-8">
+      <div className="max-w-360 mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            {t("dashboard.welcome")}, {user?.name}!
-          </h1>
-          <p className="text-gray-600">
-            Manage your family safety and learning progress
-          </p>
+
+        {/* Calm Welcome Card */}
+        <div className="mt-8 mb-8">
+          <div className="bg-linear-to-r from-blue-100 via-blue-50 to-gray-100 rounded-2xl shadow p-6 flex flex-col sm:flex-row items-center gap-6 border border-blue-200">
+            <div className="shrink-0 w-20 h-20 rounded-full bg-blue-200/60 flex items-center justify-center shadow-md border-4 border-white">
+              <Users className="w-12 h-12 text-blue-700 drop-shadow" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h1 className="text-3xl sm:text-4xl font-extrabold text-blue-900 mb-1 drop-shadow-sm">
+                {t("dashboard.welcome")}, {user?.name}!
+              </h1>
+              <p className="text-lg text-blue-800/90 font-medium">
+                Manage your <span className="font-semibold text-blue-600">family safety</span> and <span className="font-semibold text-green-700">learning progress</span>
+              </p>
+            </div>
+          </div>
         </div>
 
-    {/* Quick Stats */}
-  <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-12 md:mb-8">
+        {/* Quick Stats */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-12 md:mb-8">
           <Card>
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
@@ -320,8 +330,8 @@ export default function DashboardPage() {
           </Card>
         </div>
 
-        <Tabs defaultValue="family" className="space-y-6">
-          <TabsList className="flex flex-wrap w-full justify-center gap-2">
+        <Tabs defaultValue="family" className="space-y-8">
+          <TabsList className="flex flex-wrap w-full justify-center gap-4">
             <TabsTrigger value="family" className="flex items-center gap-2">
               <Users className="w-4 h-4" />
               {t("dashboard.familyMembers")}
@@ -381,9 +391,6 @@ export default function DashboardPage() {
                           <div className="flex-1">
                             <h3 className="font-medium flex items-center gap-2">
                               {module.title}
-                              {/* {module.isLocked && (
-                                <Lock className="w-4 h-4 text-gray-500" />
-                              )} */}
                               {module.badge && (
                                 <Badge variant="secondary">
                                   {module.badge}
@@ -400,45 +407,12 @@ export default function DashboardPage() {
                             </div>
 
                             <div className="mt-3">
-                              {/* {module.isLocked ? (
-                                <Button size="sm" disabled className="w-full">
-                                  <Lock className="w-3 h-3 mr-1" />
-                                  {t("safety.locked")}
-                                </Button>
-                              ) : module.progress === 100 ? (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="w-full"
-                                >
-                                  <CheckCircle className="w-3 h-3 mr-1" />
-                                  {t("safety.completed")}
-                                </Button>
-                              ) : (
-                                <Link
-                                  key={module.id}
-                                  href={`/safetycourse/${module.id}`}
-                                  // size="sm"
-                                  onClick={() => handleStartModule(module.id)}
-                                  className="w-full"
-                                >
-                                  <Play className="w-3 h-3 mr-1" />
-                                  {module.progress > 0
-                                    ? t("safety.continue")
-                                    : t("safety.start")}
-                                </Link>
-                              )} */}
                               <Link
                                 key={module.id}
                                 href={`/safetycourse/${module.id}`}
-                                // size="sm"
-                                // onClick={() => handleStartModule(module.id)}
                                 className="flex items-center justify-center w-full bg-black rounded-lg text-white py-2"
                               >
                                 <Play className="w-3 h-3 mr-1" />
-                                {/* {module.progress > 0
-                                  ? t("safety.continue")
-                                  : t("safety.start")} */}
                                 {t("safety.start")}
                               </Link>
                             </div>
@@ -453,7 +427,7 @@ export default function DashboardPage() {
           </TabsContent>
 
           {/* Recent Alerts Tab */}
-          <TabsContent value="alerts" className="space-y-6 pb-8">
+          <TabsContent value="alerts" className="space-y-6 pb-8 mt-5">
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -464,7 +438,9 @@ export default function DashboardPage() {
                   Recent earthquake alerts and safety notifications
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">...</CardContent>
+              <CardContent className="space-y-4">
+                <LiveAlerts />
+              </CardContent>
             </Card>
           </TabsContent>
         </Tabs>

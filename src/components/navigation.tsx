@@ -1270,9 +1270,11 @@ export function Navigation() {
           {/* Logo */}
           <div className="flex items-center">
             <Link href="/" className="flex items-center space-x-2">
-              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-                <AlertTriangle className="w-5 h-5 text-white" />
-              </div>
+              <img 
+                src="/linyone.svg" 
+                alt="Lin Yone Tech" 
+                className="h-16 w-auto"
+              />
               <span className="text-xl font-bold text-gray-900">Lin Yone Tech</span>
             </Link>
           </div>

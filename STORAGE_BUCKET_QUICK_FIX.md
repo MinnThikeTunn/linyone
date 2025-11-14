@@ -121,7 +121,7 @@ For detailed setup, see: `STORAGE_BUCKET_ERROR_FIX.md`
 
 - ❌ Foreign Key Error → ✅ Fixed
 - ❌ RLS Policy Error → ✅ Fixed
-- ❌ Storage Bucket Error → ✅ Fixed (just now)
+- ❌ Storage Bucket Error → ✅ Fixed ()
 
 ---
 

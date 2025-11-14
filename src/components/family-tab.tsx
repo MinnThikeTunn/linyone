@@ -10,10 +10,11 @@ import { Label } from '@/components/ui/label'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Users, Heart, Plus, MessageCircle, MapPin, XCircle, Search, CheckCircle, AlertTriangle, HelpCircle, Clock, Loader2 } from 'lucide-react'
 import { TabsContent } from '@/components/ui/tabs'
-import { fetchFamilyMembers, sendMessage, sendFamilyRequest, findUsers, removeFamilyMemberById, sendSafetyCheck, getSentFamilyRequests, cancelFamilyRequest } from '@/services/family'
+import { fetchFamilyMembers, sendMessage, sendFamilyRequest, findUsers, removeFamilyMemberById, sendSafetyCheck, getSentFamilyRequests, cancelFamilyRequest, fetchLastSeenForUsers } from '@/services/family'
 import { subscribeToNotifications, NotificationRecord, getNotifications } from '@/services/notifications'
 import { supabase } from '@/lib/supabase'
 import { useEffect, useMemo } from 'react'
+import { EventMapModal } from '@/components/alerts/event-map-modal'
 
 interface Props {
   t: any
@@ -59,6 +60,9 @@ export default function FamilyTab(props: Props) {
   } = props
 
   const [sentRequests, setSentRequests] = useState<any[]>([])
+  const [lastSeenMap, setLastSeenMap] = useState<Record<string, any>>({})
+  const [mapModalOpen, setMapModalOpen] = useState(false)
+  const [selectedLocation, setSelectedLocation] = useState<{ name: string; lat: number; lng: number; address?: string } | null>(null)
 
   // Fetch sent requests and merge with family members
   useEffect(() => {
@@ -139,6 +143,21 @@ export default function FamilyTab(props: Props) {
     
     return Array.from(memberMap.values())
   }, [familyMembers, sentRequests, user?.id])
+
+  // Load last seen info for all merged members
+  useEffect(() => {
+    const run = async () => {
+      try {
+        const ids = mergedMembers.map((m: any) => m.id).filter(Boolean)
+        if (!ids || ids.length === 0) { setLastSeenMap({}); return }
+        const map = await fetchLastSeenForUsers(ids)
+        setLastSeenMap(map || {})
+      } catch (e) {
+        console.warn('failed to load last seen', e)
+      }
+    }
+    run()
+  }, [mergedMembers])
 
   const handleSendSafetyCheck = async (memberId: string) => {
     if (!user?.id) return
@@ -408,12 +427,12 @@ export default function FamilyTab(props: Props) {
           <CardContent>
             <div className="space-y-4">
               {mergedMembers.map((member) => (
-                <div key={member.id} className="flex flex-col md:flex-row items-start md:items-center justify-between p-4 border rounded-lg gap-3">
-                  <div className="flex items-center gap-4 w-full md:w-auto">
-                    <div className="w-12 h-12 md:w-10 md:h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                <div key={member.id} className="flex flex-col md:flex-row items-start md:items-center justify-between p-4 border rounded-lg gap-4 md:gap-6">
+                  <div className="flex items-start gap-4 w-full md:w-auto min-w-0">
+                    <div className="w-12 h-12 md:w-10 md:h-10 bg-blue-100 rounded-full flex items-center justify-center shrink-0">
                       <Users className="w-5 h-5 text-blue-600" />
                     </div>
-                    <div>
+                    <div className="min-w-0 w-full">
                       <div className="flex items-center gap-2">
                         <h3 className="font-medium">{member.name}</h3>
                         {member.requestStatus === 'pending' && (
@@ -423,21 +442,46 @@ export default function FamilyTab(props: Props) {
                           </Badge>
                         )}
                       </div>
-                      <p className="text-sm text-gray-600">{member.phone}</p>
-                      <p className="text-xs text-gray-500">ID: {member.uniqueId}</p>
+                      <p className="text-sm text-gray-600 wrap-break-word">{member.phone}</p>
+                      <p className="text-xs text-gray-500 wrap-break-word">ID: {member.uniqueId}</p>
                       {member.relation && (
-                        <p className="text-xs text-blue-600 mt-1">Relation: {member.relation}</p>
+                        <p className="text-xs text-blue-600 mt-1 wrap-break-word">Relation: {member.relation}</p>
                       )}
-                      {member.location?.address && (
-                        <p className="text-xs text-gray-500 flex items-center gap-1 mt-1">
-                          <MapPin className="w-3 h-3" />
-                          {member.location?.address}
+                      {/* Last seen info */}
+                      {(lastSeenMap[member.id]?.last_seen_at) && (
+                        <p className="text-xs text-gray-600 mt-1 wrap-break-word">
+                          <span className="font-medium">Last seen:</span> {new Date(lastSeenMap[member.id].last_seen_at).toLocaleString()}
                         </p>
+                      )}
+                      {(lastSeenMap[member.id]?.address || (lastSeenMap[member.id]?.lat && lastSeenMap[member.id]?.lng)) && (
+                        <div className="text-xs text-gray-600 flex flex-col sm:flex-row sm:items-center gap-1 mt-1">
+                          <div className="flex items-start gap-1 min-w-0">
+                            <MapPin className="w-3 h-3 shrink-0 mt-0.5" />
+                            <span className="wrap-break-word whitespace-normal leading-snug min-w-0">
+                              {lastSeenMap[member.id]?.address || `${Number(lastSeenMap[member.id]?.lat).toFixed(4)}, ${Number(lastSeenMap[member.id]?.lng).toFixed(4)}`}
+                            </span>
+                          </div>
+                          {lastSeenMap[member.id]?.lat && lastSeenMap[member.id]?.lng && (
+                            <button
+                              className="sm:ml-2 underline text-indigo-600 hover:text-indigo-700 shrink-0 cursor-pointer"
+                              onClick={() => {
+                                setSelectedLocation({
+                                  name: member.name || 'Unknown',
+                                  lat: lastSeenMap[member.id].lat,
+                                  lng: lastSeenMap[member.id].lng,
+                                  address: lastSeenMap[member.id]?.address
+                                })
+                                setMapModalOpen(true)
+                              }}
+                            >
+                              View on Map
+                            </button>
+                          )}
+                        </div>
                       )}
                     </div>
                   </div>
-
-                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full md:w-auto">
+                  <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-2 w-full md:w-auto">
                     {member.requestStatus === 'pending' ? (
                       // Show unlink button for pending requests (cancels the request)
                       <Button 
@@ -511,6 +555,16 @@ export default function FamilyTab(props: Props) {
             </div>
           </CardContent>
         </Card>
+
+        {/* Map Modal for viewing member location */}
+        <EventMapModal
+          open={mapModalOpen}
+          onOpenChange={setMapModalOpen}
+          title={selectedLocation ? `${selectedLocation.name}'s Last Seen Location` : 'Location'}
+          latitude={selectedLocation?.lat ?? null}
+          longitude={selectedLocation?.lng ?? null}
+          subtitle={selectedLocation?.address}
+        />
       </TabsContent>
     </>
   )
@@ -614,14 +668,14 @@ function renderSafetyControl(member: any, t: any, sendFn: (id: string)=>Promise<
   const active = serverWindowActive(member)
   if (active && member.status) {
     return (
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
         <StatusBadge status={member.status} />
         <Countdown expiresAt={member.safety_check_expires_at} />
       </div>
     )
   }
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
       <Button
         size="sm"
         variant="outline"

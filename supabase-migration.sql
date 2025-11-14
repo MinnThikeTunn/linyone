@@ -190,3 +190,25 @@ CREATE TABLE public.users (
   total_points integer DEFAULT 0,
   CONSTRAINT users_pkey PRIMARY KEY (id)
 );
+
+-- Track users' last seen location and time
+CREATE TABLE IF NOT EXISTS public.user_last_seen (
+  user_id uuid PRIMARY KEY,
+  lat double precision,
+  lng double precision,
+  address text,
+  last_seen_at timestamptz DEFAULT now()
+);
+
+-- Ensure referential integrity to users
+ALTER TABLE public.user_last_seen
+  ADD CONSTRAINT user_last_seen_user_id_fkey
+  FOREIGN KEY (user_id)
+  REFERENCES public.users(id)
+  ON DELETE CASCADE;
+
+-- Optional: allow selecting/upserting with RLS enabled (adjust as needed)
+-- ALTER TABLE public.user_last_seen ENABLE ROW LEVEL SECURITY;
+-- CREATE POLICY "user_read_last_seen" ON public.user_last_seen FOR SELECT USING (true);
+-- CREATE POLICY "user_upsert_own_last_seen" ON public.user_last_seen FOR INSERT WITH CHECK (true);
+-- CREATE POLICY "user_update_own_last_seen" ON public.user_last_seen FOR UPDATE USING (true) WITH CHECK (true);

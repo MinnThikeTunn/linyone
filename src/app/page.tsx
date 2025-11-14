@@ -39,6 +39,7 @@ import {
   Clock,
   Eye,
   Lock,
+  Loader2,
 } from "lucide-react";
 import { useLanguage } from "@/hooks/use-language";
 import { useAuth } from "@/hooks/use-auth";
@@ -56,6 +57,8 @@ import {
   type Item,
   type PinItem 
 } from "@/services/pins";
+import { analyzePin } from "@/lib/ai/analyzePin";
+import type { AISuggestion } from "@/lib/ai/types";
 
 // Add Mapbox GL JS
 import mapboxgl from "mapbox-gl";
@@ -125,12 +128,26 @@ export default function HomePage() {
     lng: number;
   } | null>(null);
   const [isCreatingPin, setIsCreatingPin] = useState(false);
+  const [aiGateChecking, setAiGateChecking] = useState(false);
   const [isUserTracker, setIsUserTracker] = useState(false);
   const [userOrgMemberId, setUserOrgMemberId] = useState<string | null>(null);
   const [showConfirmPinDialog, setShowConfirmPinDialog] = useState(false);
   const [showPinListDialog, setShowPinListDialog] = useState(false);
   const [pinToConfirm, setPinToConfirm] = useState<Pin | null>(null);
     const [trackerSelectedItems, setTrackerSelectedItems] = useState<Map<string, number>>(new Map());
+  // AI suggestion states (Add Pin dialog)
+  const [aiSuggestAdd, setAiSuggestAdd] = useState<AISuggestion | null>(null);
+  const [aiLoadingAdd, setAiLoadingAdd] = useState(false);
+  const [aiErrorAdd, setAiErrorAdd] = useState<string | null>(null);
+  // AI suggestion states (Confirm Pin dialog)
+  const [aiSuggestConfirm, setAiSuggestConfirm] = useState<AISuggestion | null>(null);
+  const [aiLoadingConfirm, setAiLoadingConfirm] = useState(false);
+  const [aiErrorConfirm, setAiErrorConfirm] = useState<string | null>(null);
+  // Cached base64 images for AI
+  const [aiAddImageB64, setAiAddImageB64] = useState<string | undefined>(undefined);
+  const [aiAddImageMime, setAiAddImageMime] = useState<string | undefined>(undefined);
+  const [aiConfirmImageB64, setAiConfirmImageB64] = useState<string | undefined>(undefined);
+  const [aiConfirmImageMime, setAiConfirmImageMime] = useState<string | undefined>(undefined);
   
   // Items from database
   const [availableItems, setAvailableItems] = useState<Item[]>([]);
@@ -165,6 +182,47 @@ export default function HomePage() {
   const markers = useRef<{ [key: string]: mapboxgl.Marker }>({});
   const userMarker = useRef<mapboxgl.Marker | null>(null);
   const tempMarker = useRef<mapboxgl.Marker | null>(null);
+  // Ref to avoid stale closure in map click handler
+  const isSelectingLocationRef = useRef(false);
+  // Route drawing refs
+  const routeIds = useRef({ source: "tracker-route", layer: "tracker-route-layer" });
+  const routePopup = useRef<mapboxgl.Popup | null>(null);
+  
+  const formatDuration = (seconds: number) => {
+    const mins = Math.round(seconds / 60);
+    if (mins < 60) return `${mins} min`;
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return m > 0 ? `${h} h ${m} m` : `${h} h`;
+  };
+  const [activeRoutePinId, setActiveRoutePinId] = useState<string | null>(null);
+
+  // Heuristic: decide if an AI suggestion looks like a rescue request
+  const isRescueRelated = (s: AISuggestion | null | undefined) => {
+    if (!s) return false;
+    const kw = [
+      "injury",
+      "injured",
+      "collapse",
+      "collapsed",
+      "trapped",
+      "rescue",
+      "help",
+      "urgent",
+      "medical",
+      "fire",
+      "flood",
+      "earthquake",
+      "building",
+      "damage",
+      "accident",
+      "bleeding",
+    ];
+    const hasCat = s.categories?.some((c) => kw.includes(c.toLowerCase()));
+    const hasItems = (s.items?.length || 0) > 0;
+    const severe = (s.severity || 0) >= 0.4;
+    return !!(hasCat || hasItems || severe);
+  };
 
   // Type-safe user role check
   const userRole = (user as User)?.role;
@@ -283,7 +341,7 @@ export default function HomePage() {
 
         // Handle map click for selecting new pin location
         map.current.on("click", (e) => {
-          if (isSelectingLocation) {
+          if (isSelectingLocationRef.current) {
             const { lng, lat } = e.lngLat;
             setNewPinLocation({ lat, lng });
 
@@ -337,6 +395,383 @@ export default function HomePage() {
       }
     };
   }, []);
+
+  // Keep ref in sync and visually indicate selection mode
+  useEffect(() => {
+    isSelectingLocationRef.current = isSelectingLocation;
+    if (map.current) {
+      const canvas = map.current.getCanvas();
+      canvas.style.cursor = isSelectingLocation ? "crosshair" : "";
+    }
+  }, [isSelectingLocation]);
+
+  // Helpers to manage route on the map
+  const clearRoute = () => {
+    if (!map.current) return;
+    const { source, layer } = routeIds.current;
+    if (map.current.getLayer(layer)) {
+      map.current.removeLayer(layer);
+    }
+    if (map.current.getSource(source)) {
+      map.current.removeSource(source);
+    }
+    if (routePopup.current) {
+      routePopup.current.remove();
+      routePopup.current = null;
+    }
+    setActiveRoutePinId(null);
+  };
+
+  const fitToLine = (coords: [number, number][]) => {
+    if (!map.current || coords.length === 0) return;
+    let minX = coords[0][0], minY = coords[0][1], maxX = coords[0][0], maxY = coords[0][1];
+    for (const [x, y] of coords) {
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+    map.current.fitBounds([[minX, minY], [maxX, maxY]], { padding: 60, duration: 700 });
+  };
+
+  const drawRoute = (coordinates: [number, number][]) => {
+    if (!map.current) return;
+    const { source, layer } = routeIds.current;
+    const data = {
+      type: "FeatureCollection",
+      features: [
+        {
+          type: "Feature",
+          geometry: {
+            type: "LineString",
+            coordinates,
+          },
+          properties: {},
+        },
+      ],
+    } as GeoJSON.FeatureCollection;
+
+    if (map.current.getSource(source)) {
+      (map.current.getSource(source) as mapboxgl.GeoJSONSource).setData(data as any);
+    } else {
+      map.current.addSource(source, { type: "geojson", data });
+      map.current.addLayer({
+        id: layer,
+        type: "line",
+        source,
+        paint: {
+          "line-color": "#2563eb",
+          "line-width": 5,
+          "line-opacity": 0.85,
+        },
+        layout: {
+          "line-cap": "round",
+          "line-join": "round",
+        },
+      });
+    }
+    fitToLine(coordinates);
+  };
+
+  const showRouteToPin = async (pin: Pin) => {
+    try {
+      if (!map.current) {
+        toast({ title: "Map not ready", description: "Please wait for the map to load.", variant: "destructive" });
+        return;
+      }
+      if (!userLocation) {
+        toast({ title: "Location required", description: "Get your current location first.", variant: "destructive" });
+        return;
+      }
+      clearRoute();
+
+      const token = (mapboxgl as any).accessToken as string | undefined;
+      const from = `${userLocation.lng},${userLocation.lat}`;
+      const to = `${pin.lng},${pin.lat}`;
+
+      if (token) {
+        const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${from};${to}?geometries=geojson&overview=full&access_token=${token}`;
+        const res = await fetch(url);
+        if (res.ok) {
+          const json = await res.json();
+          const coords: [number, number][] | undefined = json?.routes?.[0]?.geometry?.coordinates;
+          const distanceMeters: number | undefined = json?.routes?.[0]?.distance;
+          const durationSeconds: number | undefined = json?.routes?.[0]?.duration;
+          if (coords && coords.length) {
+            drawRoute(coords);
+            setActiveRoutePinId(pin.id);
+            // Place a tiny popup around the midpoint with distance and duration
+            const midIdx = Math.floor(coords.length / 2);
+            const mid = coords[midIdx];
+            if (map.current && mid) {
+              const distKm = distanceMeters ? distanceMeters / 1000 : undefined;
+              const html = `
+                <div style="min-width:220px;max-width:280px;padding:8px 10px;border-radius:10px;background:#ffffff;color:#0f172a;border:1px solid #e5e7eb;box-shadow:0 8px 20px rgba(0,0,0,0.12);font-size:12px;line-height:1.2;">
+                  <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+                    <span style="display:inline-block;width:6px;height:6px;background:#2563eb;border-radius:9999px;"></span>
+                    <span style="font-weight:600;">Route Info</span>
+                  </div>
+                  <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+                    <div><strong>Distance:</strong> ${distKm !== undefined ? distKm.toFixed(2) : "-"} km</div>
+                    <div><strong>ETA:</strong> ${durationSeconds !== undefined ? formatDuration(durationSeconds) : "-"}</div>
+                  </div>
+                </div>`;
+              if (routePopup.current) {
+                routePopup.current.setLngLat(mid as any).setHTML(html).addTo(map.current);
+              } else {
+                routePopup.current = new mapboxgl.Popup({ closeButton: true, closeOnClick: false, maxWidth: "260px", anchor: "bottom", offset: 12 })
+                  .setLngLat(mid as any)
+                  .setHTML(html)
+                  .addTo(map.current);
+              }
+            }
+            return;
+          }
+        }
+      }
+      // Fallback: draw straight line
+      const fallbackCoords: [number, number][] = [
+        [userLocation.lng, userLocation.lat],
+        [pin.lng, pin.lat],
+      ];
+      drawRoute(fallbackCoords);
+      setActiveRoutePinId(pin.id);
+      // Compute haversine distance and an approximate duration (40km/h)
+      const toRad = (d: number) => (d * Math.PI) / 180;
+      const R = 6371; // km
+      const dLat = toRad(pin.lat - userLocation.lat);
+      const dLon = toRad(pin.lng - userLocation.lng);
+      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(toRad(userLocation.lat)) * Math.cos(toRad(pin.lat)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      const distKm = R * c;
+      const durationSeconds = (distKm / 40) * 3600; // approx driving
+      const mid: [number, number] = [(userLocation.lng + pin.lng) / 2, (userLocation.lat + pin.lat) / 2];
+      if (map.current) {
+        const html = `
+          <div style="min-width:220px;max-width:280px;padding:8px 10px;border-radius:10px;background:#ffffff;color:#0f172a;border:1px solid #e5e7eb;box-shadow:0 8px 20px rgba(0,0,0,0.12);font-size:12px;line-height:1.2;">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+              <span style="display:inline-block;width:6px;height:6px;background:#2563eb;border-radius:9999px;"></span>
+              <span style="font-weight:600;">Route Info</span>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+              <div><strong>Distance:</strong> ${distKm.toFixed(2)} km</div>
+              <div><strong>ETA:</strong> ~${formatDuration(durationSeconds)}</div>
+            </div>
+          </div>`;
+        if (routePopup.current) {
+          routePopup.current.setLngLat(mid as any).setHTML(html).addTo(map.current);
+        } else {
+          routePopup.current = new mapboxgl.Popup({ closeButton: true, closeOnClick: false, maxWidth: "260px", anchor: "bottom", offset: 12 })
+            .setLngLat(mid as any)
+            .setHTML(html)
+            .addTo(map.current);
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to draw route, drawing straight line", e);
+      if (userLocation) {
+        const fallbackCoords: [number, number][] = [
+          [userLocation.lng, userLocation.lat],
+          [pin.lng, pin.lat],
+        ];
+        drawRoute(fallbackCoords);
+        setActiveRoutePinId(pin.id);
+        // Same fallback metrics
+        const toRad = (d: number) => (d * Math.PI) / 180;
+        const R = 6371; // km
+        const dLat = toRad(pin.lat - userLocation.lat);
+        const dLon = toRad(pin.lng - userLocation.lng);
+        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(toRad(userLocation.lat)) * Math.cos(toRad(pin.lat)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        const distKm = R * c;
+        const durationSeconds = (distKm / 40) * 3600; // approx driving
+        const mid: [number, number] = [(userLocation.lng + pin.lng) / 2, (userLocation.lat + pin.lat) / 2];
+        if (map.current) {
+          const html = `
+            <div style="min-width:220px;max-width:280px;padding:8px 10px;border-radius:10px;background:#ffffff;color:#0f172a;border:1px solid #e5e7eb;box-shadow:0 8px 20px rgba(0,0,0,0.12);font-size:12px;line-height:1.2;">
+              <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+                <span style="display:inline-block;width:6px;height:6px;background:#2563eb;border-radius:9999px;"></span>
+                <span style="font-weight:600;">Route Info</span>
+              </div>
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+                <div><strong>Distance:</strong> ${distKm.toFixed(2)} km</div>
+                <div><strong>ETA:</strong> ~${formatDuration(durationSeconds)}</div>
+              </div>
+            </div>`;
+          if (routePopup.current) {
+            routePopup.current.setLngLat(mid as any).setHTML(html).addTo(map.current);
+          } else {
+            routePopup.current = new mapboxgl.Popup({ closeButton: true, closeOnClick: false, maxWidth: "260px", anchor: "bottom", offset: 12 })
+              .setLngLat(mid as any)
+              .setHTML(html)
+              .addTo(map.current);
+          }
+        }
+      }
+    }
+  };
+
+  // Debounced AI suggestion for Add Pin dialog based on description
+  useEffect(() => {
+    if (!showPinDialog) return;
+    const desc = pinDescription.trim();
+    if (desc.length < 8) {
+      setAiSuggestAdd(null);
+      setAiErrorAdd(null);
+      return;
+    }
+    const handle = setTimeout(async () => {
+      setAiLoadingAdd(true);
+      setAiErrorAdd(null);
+      const allowed = availableItems.map((it) => it.name);
+      const s = await analyzePin({ description: desc, imageBase64: aiAddImageB64, imageMime: aiAddImageMime, allowedItems: allowed });
+      if (!s) setAiErrorAdd("No suggestions");
+      setAiSuggestAdd(s);
+      setAiLoadingAdd(false);
+      // Auto-apply for trackers only if nothing selected yet
+      if (isUserTracker && s && trackerSelectedItems.size === 0) {
+        applySuggestedItemsToTracker(s);
+      }
+    }, 600);
+    return () => clearTimeout(handle);
+  }, [pinDescription, showPinDialog, aiAddImageB64, aiAddImageMime, isUserTracker, trackerSelectedItems.size, availableItems]);
+
+  // AI suggestion for Confirm Pin dialog when opened
+  useEffect(() => {
+    if (!showConfirmPinDialog || !pinToConfirm) return;
+    const desc = pinToConfirm.description?.trim();
+    if (!desc || desc.length < 4) {
+      setAiSuggestConfirm(null);
+      setAiErrorConfirm(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setAiLoadingConfirm(true);
+      setAiErrorConfirm(null);
+      const allowed = availableItems.map((it) => it.name);
+      const s = await analyzePin({ description: desc, imageBase64: aiConfirmImageB64, imageMime: aiConfirmImageMime, allowedItems: allowed });
+      if (!cancelled) {
+        if (!s) setAiErrorConfirm("No suggestions");
+        setAiSuggestConfirm(s || null);
+        setAiLoadingConfirm(false);
+        // Auto-apply if nothing selected yet
+        if (s && selectedItems.size === 0) {
+          applySuggestedItemsToConfirm(s);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [showConfirmPinDialog, pinToConfirm, aiConfirmImageB64, aiConfirmImageMime, selectedItems.size, availableItems]);
+
+  // Convert Add Pin selected image to base64 for AI (once per file)
+  useEffect(() => {
+    if (!pinImage) {
+      setAiAddImageB64(undefined);
+      setAiAddImageMime(undefined);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const res = reader.result as string;
+      const comma = res.indexOf(",");
+      const b64 = comma >= 0 ? res.slice(comma + 1) : res;
+      setAiAddImageB64(b64);
+      setAiAddImageMime(pinImage.type || "image/jpeg");
+    };
+    reader.readAsDataURL(pinImage);
+  }, [pinImage]);
+
+  // Convert Confirm Pin image URL to base64 for AI when dialog opens
+  useEffect(() => {
+    let aborted = false;
+    async function load() {
+      if (!showConfirmPinDialog || !pinToConfirm?.image) {
+        setAiConfirmImageB64(undefined);
+        setAiConfirmImageMime(undefined);
+        return;
+      }
+      try {
+        const resp = await fetch(pinToConfirm.image);
+        const blob = await resp.blob();
+        if (aborted) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          if (aborted) return;
+          const res = reader.result as string;
+          const comma = res.indexOf(",");
+          const b64 = comma >= 0 ? res.slice(comma + 1) : res;
+          setAiConfirmImageB64(b64);
+          setAiConfirmImageMime(blob.type || "image/jpeg");
+        };
+        reader.readAsDataURL(blob);
+      } catch {
+        if (!aborted) {
+          setAiConfirmImageB64(undefined);
+          setAiConfirmImageMime(undefined);
+        }
+      }
+    }
+    load();
+    return () => {
+      aborted = true;
+    };
+  }, [showConfirmPinDialog, pinToConfirm?.image]);
+
+  const applySuggestedItemsToTracker = (suggest: AISuggestion | null) => {
+    if (!suggest || availableItems.length === 0) return;
+    const map = new Map<string, number>();
+    const lowerName = (s: string) => s.toLowerCase();
+    const matchId = (name: string) => {
+      const ln = lowerName(name);
+      // simple synonyms
+      const synonyms: Record<string, string[]> = {
+        "water bottles": ["water", "bottles", "water bottle"],
+        "first aid": ["firstaid", "first-aid", "aid"],
+        "medicine box": ["medicine", "med box", "medical"],
+        blankets: ["blanket"],
+      };
+      const candidates = [ln, ...Object.entries(synonyms).flatMap(([k, arr]) => (k === ln ? arr : []))];
+      const found = availableItems.find((it) => {
+        const ain = it.name.toLowerCase();
+        return candidates.some((c) => ain.includes(c));
+      });
+      return found?.id;
+    };
+    suggest.items.forEach((it) => {
+      const id = matchId(it.name);
+      if (id) map.set(id, (map.get(id) || 0) + Math.max(1, it.qty));
+    });
+    if (map.size > 0) setTrackerSelectedItems(map);
+  };
+
+  const applySuggestedItemsToConfirm = (suggest: AISuggestion | null) => {
+    if (!suggest || availableItems.length === 0) return;
+    const map = new Map<string, number>();
+    const lowerName = (s: string) => s.toLowerCase();
+    const matchId = (name: string) => {
+      const ln = lowerName(name);
+      const synonyms: Record<string, string[]> = {
+        "water bottles": ["water", "bottles", "water bottle"],
+        "first aid": ["firstaid", "first-aid", "aid"],
+        "medicine box": ["medicine", "med box", "medical"],
+        blankets: ["blanket"],
+      };
+      const candidates = [ln, ...Object.entries(synonyms).flatMap(([k, arr]) => (k === ln ? arr : []))];
+      const found = availableItems.find((it) => {
+        const ain = it.name.toLowerCase();
+        return candidates.some((c) => ain.includes(c));
+      });
+      return found?.id;
+    };
+    suggest.items.forEach((it) => {
+      const id = matchId(it.name);
+      if (id) map.set(id, (map.get(id) || 0) + Math.max(1, it.qty));
+    });
+    if (map.size > 0) setSelectedItems(map);
+  };
 
   // Update markers when pins change
   useEffect(() => {
@@ -460,7 +895,64 @@ export default function HomePage() {
 
   const handleCreatePin = async () => {
     if (!pinPhone || !pinDescription) return;
+    setAiGateChecking(true);
+    // For normal users reporting damaged locations, gate by AI relevance
+    if (!isUserTracker && pinType === "damaged") {
+      try {
+        let s = aiSuggestAdd;
+        if (!s) {
+          const allowed = availableItems.map((it) => it.name);
+          s = await analyzePin({
+            description: pinDescription.trim(),
+            imageBase64: aiAddImageB64,
+            imageMime: aiAddImageMime,
+            allowedItems: allowed,
+          });
+          setAiSuggestAdd(s);
+        }
+        if (!isRescueRelated(s)) {
+          toast({
+            title: "Not a rescue request",
+            description:
+              "Please describe an actual disaster/urgent help situation and add a relevant photo.",
+            variant: "destructive",
+          });
+          setAiGateChecking(false);
+          return;
+        }
+      } catch (e) {
+        console.warn("AI relevance check failed; proceeding without gate.", e);
+      }
+    }
+    // For normal users reporting safe zones, ensure it doesn't look like an emergency
+    if (!isUserTracker && pinType === "safe") {
+      try {
+        let s = aiSuggestAdd;
+        if (!s) {
+          const allowed = availableItems.map((it) => it.name);
+          s = await analyzePin({
+            description: pinDescription.trim(),
+            imageBase64: aiAddImageB64,
+            imageMime: aiAddImageMime,
+            allowedItems: allowed,
+          });
+          setAiSuggestAdd(s);
+        }
+        if (isRescueRelated(s)) {
+          toast({
+            title: "Looks like an emergency",
+            description: "Please switch to Damaged Location for emergency reports.",
+            variant: "destructive",
+          });
+          setAiGateChecking(false);
+          return;
+        }
+      } catch (e) {
+        console.warn("AI safe-zone check failed; proceeding without gate.", e);
+      }
+    }
 
+    setAiGateChecking(false);
     setIsCreatingPin(true);
     try {
       // Use selected location or map center
@@ -573,6 +1065,66 @@ export default function HomePage() {
     } finally {
       setIsCreatingPin(false);
     }
+  };
+
+  const handleConfirmPin = async (pinId: string) => {
+    try {
+      // Verify user is authenticated and is a tracker before attempting confirmation
+      if (!user?.id) {
+        toast({
+          title: "Error",
+          description: "You must be logged in to confirm pins",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (!isUserTracker) {
+        toast({
+          title: "Error",
+          description: "Only trackers can confirm pins",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const result = await updatePinStatus(
+        pinId,
+        "confirmed",
+        userOrgMemberId || undefined,
+        user.id
+      );
+
+      if (result.success) {
+        setPins(
+          pins.map((pin) =>
+            pin.id === pinId ? { ...pin, status: "confirmed" } : pin
+          )
+        );
+        toast({
+          title: "Success",
+          description: "Pin confirmed successfully",
+          variant: "success"
+        });
+      } else {
+        toast({
+          title: "Error",
+          description: result.error || "Failed to confirm pin",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error("Error confirming pin:", error);
+      toast({
+        title: "Error",
+        description: "Failed to confirm pin",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDenyPin = (pinId: string) => {
+    setPins(pins.filter((pin) => pin.id !== pinId));
   };
 
   const handleMarkCompleted = async (pinId: string) => {
@@ -784,8 +1336,8 @@ export default function HomePage() {
           {/* Map Area */}
           <div className="lg:col-span-2">
             {/* Header */}
-            <div className="max-w-7xl mx-auto py-4">
-              <div className={`flex items-center gap-2 w-full ${isUserTracker ? "flex-wrap" : ""}`}>
+            <div className="max-w-7xl mx-auto pb-4">
+              <div className={`flex items-center gap-2 w-full `}>
                 <Button
                   variant="outline"
                   size={isUserTracker ? "sm" : "default"}
@@ -837,7 +1389,7 @@ export default function HomePage() {
                       </Button>
                     </DialogTrigger>
                   )}
-                  <DialogContent className="sm:max-w-md">
+                  <DialogContent className="sm:max-w-md max-h-[85vh] overflow-y-auto my-6">
                     <DialogHeader>
                       <DialogTitle>{t("map.title")}</DialogTitle>
                     </DialogHeader>
@@ -886,6 +1438,78 @@ export default function HomePage() {
                           placeholder="Describe the situation..."
                           rows={3}
                         />
+                        {aiLoadingAdd && (
+                          <div className="mt-2 text-xs text-gray-500">Analyzing description…</div>
+                        )}
+                        {!aiLoadingAdd && aiSuggestAdd && (
+                          <div className="mt-2 border rounded-lg p-3 bg-gray-50">
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="text-sm font-medium">AI Suggestions</div>
+                              <div
+                                className={`text-xs px-2 py-0.5 rounded ${
+                                  aiSuggestAdd.severity >= 0.8
+                                    ? "bg-red-100 text-red-700"
+                                    : aiSuggestAdd.severity >= 0.5
+                                    ? "bg-yellow-100 text-yellow-700"
+                                    : "bg-green-100 text-green-700"
+                                }`}
+                              >
+                                Severity: {Math.round(aiSuggestAdd.severity * 100)}%
+                              </div>
+                            </div>
+                            <div className="text-xs text-gray-600 mb-2">
+                              Categories: {aiSuggestAdd.categories.join(", ")}
+                            </div>
+                            <div className="text-xs">
+                              {aiSuggestAdd.items.length > 0 ? (
+                                <ul className="list-disc ml-5">
+                                  {aiSuggestAdd.items.map((it, idx) => (
+                                    <li key={idx}>{it.name} × {it.qty}</li>
+                                  ))}
+                                </ul>
+                              ) : (
+                                <div>No items suggested.</div>
+                              )}
+                            </div>
+                            {/* {isUserTracker && (
+                              <div className="mt-2 flex gap-2">
+                                <Button size="sm" variant="outline" onClick={() => applySuggestedItemsToTracker(aiSuggestAdd)}>
+                                  Apply Suggestions
+                                </Button>
+                                <Button size="sm" variant="ghost" onClick={() => setAiSuggestAdd(null)}>
+                                  Dismiss
+                                </Button>
+                              </div>
+                            )} */}
+                          </div>
+                        )}
+                        {!aiLoadingAdd && aiErrorAdd && (
+                          <div className="mt-2 text-xs text-gray-400">{aiErrorAdd}</div>
+                        )}
+
+                        {/* Non-tracker rescue gating notice for Damaged */}
+                        {!isUserTracker && pinType === "damaged" && aiSuggestAdd && !isRescueRelated(aiSuggestAdd) && (
+                          <Alert className="mt-2 border-red-300">
+                            <AlertDescription className="text-xs text-red-700">
+                              This report doesn't look like a disaster rescue request. Please add more relevant details or a clear photo.
+                            </AlertDescription>
+                          </Alert>
+                        )}
+                        {/* Non-tracker gating for Safe Zone when description looks like an emergency */}
+                        {!isUserTracker && pinType === "safe" && aiSuggestAdd && isRescueRelated(aiSuggestAdd) && (
+                          <Alert className="mt-2 border-yellow-300">
+                            <AlertDescription className="text-xs text-yellow-800">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="flex-1">
+                                  This looks like an emergency situation. Please switch to "Damaged Location" or adjust the description/photo.
+                                </div>
+                                <Button size="sm" variant="outline" onClick={() => setPinType("damaged")}>
+                                  Switch to Damaged
+                                </Button>
+                              </div>
+                            </AlertDescription>
+                          </Alert>
+                        )}
                       </div>
                       
                       <div>
@@ -998,9 +1622,19 @@ export default function HomePage() {
                         <Button
                           onClick={handleCreatePin}
                           className="flex-1"
-                          disabled={isCreatingPin}
+                          disabled={
+                            isCreatingPin ||
+                            aiGateChecking ||
+                            (!isUserTracker && pinType === "damaged" && !!aiSuggestAdd && !isRescueRelated(aiSuggestAdd)) ||
+                            (!isUserTracker && pinType === "safe" && !!aiSuggestAdd && isRescueRelated(aiSuggestAdd))
+                          }
                         >
-                          {isCreatingPin ? (
+                          {aiGateChecking ? (
+                            <div className="flex items-center gap-2">
+                              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                              Validating...
+                            </div>
+                          ) : isCreatingPin ? (
                             <div className="flex items-center gap-2">
                               <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                               Creating...
@@ -1023,7 +1657,7 @@ export default function HomePage() {
               </div>
             </div>
 
-            <Card className="h-[800px] py-0">
+            <Card className="h-full min-h-[800px] py-0">
               <CardContent className="p-0 h-full relative">
                 {/* Mapbox Map */}
                 <div
@@ -1066,16 +1700,32 @@ export default function HomePage() {
                         Click on the map to select a location for your pin
                       </p>
                     </div>
-                    <Button
-                      size="sm"
-                      onClick={() => {
-                        setIsSelectingLocation(false);
-                        setShowPinDialog(true);
-                      }}
-                      className="mt-2 w-full"
-                    >
-                      Done
-                    </Button>
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          setIsSelectingLocation(false);
+                          setShowPinDialog(true);
+                        }}
+                      >
+                        Done
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setNewPinLocation(null);
+                          if (tempMarker.current) {
+                            tempMarker.current.remove();
+                            tempMarker.current = null;
+                          }
+                          setIsSelectingLocation(false);
+                          setShowPinDialog(true);
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
                   </div>
                 )}
                   
@@ -1275,6 +1925,37 @@ export default function HomePage() {
               </DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
+              <div className="flex gap-2 justify-end">
+                <Button
+                  size="sm"
+                  variant="default"
+                  onClick={() => showRouteToPin(selectedPin)}
+                >
+                  <Navigation className="w-3 h-3 mr-1" /> Show Route
+                </Button>
+                {activeRoutePinId === selectedPin.id && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => clearRoute()}
+                  >
+                    Clear Route
+                  </Button>
+                )}
+                {isUserTracker && selectedPin.status === "pending" && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setPinToConfirm(selectedPin);
+                      setShowConfirmPinDialog(true);
+                      setSelectedPin(null);
+                    }}
+                  >
+                    Select
+                  </Button>
+                )}
+              </div>
               <div>
                 <Badge className={`${getStatusColor(selectedPin.status)}`}>
                   <div className="flex items-center gap-1">
@@ -1362,9 +2043,33 @@ export default function HomePage() {
                             <span>{pin.createdAt.toLocaleString()}</span>
                           </div>
                         </div>
-                        <Button size="sm" variant="outline">
-                          Select
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            size="sm"
+                            variant="default"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              showRouteToPin(pin);
+                            }}
+                          >
+                            <Navigation className="w-3 h-3 mr-1" /> Route
+                          </Button>
+                          {activeRoutePinId === pin.id && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                clearRoute();
+                              }}
+                            >
+                              Clear
+                            </Button>
+                          )}
+                          <Button size="sm" variant="outline">
+                            Select
+                          </Button>
+                        </div>
                       </div>
                     </CardContent>
                   </Card>
@@ -1378,36 +2083,211 @@ export default function HomePage() {
       {/* Confirm Pin Dialog */}
       {isUserTracker && pinToConfirm && (
         <Dialog open={showConfirmPinDialog} onOpenChange={setShowConfirmPinDialog}>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto my-6">
             <DialogHeader>
               <DialogTitle>Confirm Pin Details</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
-              {/* Pin Details */}
-              <div className="space-y-2 border-b pb-4">
-                <div>
-                  <Label className="text-sm font-medium text-gray-500">Phone</Label>
-                  <p className="text-sm">{pinToConfirm.phone}</p>
-                </div>
-                <div>
-                  <Label className="text-sm font-medium text-gray-500">Status</Label>
-                  <Badge className={getStatusColor(pinToConfirm.status)}>
-                    {pinToConfirm.status}
-                  </Badge>
-                </div>
-                <div>
-                  <Label className="text-sm font-medium text-gray-500">Description</Label>
-                  <p className="text-sm">{pinToConfirm.description}</p>
-                </div>
-                <div>
-                  <Label className="text-sm font-medium text-gray-500">Reporter</Label>
-                  <p className="text-sm">{pinToConfirm.createdBy}</p>
-                </div>
-                <div>
-                  <Label className="text-sm font-medium text-gray-500">Timestamp</Label>
-                  <p className="text-sm">{pinToConfirm.createdAt.toLocaleString()}</p>
-                </div>
+              {/* Action Buttons */}
+              <div className="flex gap-2 justify-end">
+                <Button
+                  size="sm"
+                  variant="default"
+                  onClick={() => pinToConfirm && showRouteToPin(pinToConfirm)}
+                  className="bg-indigo-600 hover:bg-indigo-700"
+                >
+                  <Navigation className="w-3 h-3 mr-1" /> Show Route
+                </Button>
+                {activeRoutePinId === pinToConfirm.id && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => clearRoute()}
+                  >
+                    Clear Route
+                  </Button>
+                )}
               </div>
+
+              {/* Pin Details Card */}
+              <div className="bg-linear-to-br from-blue-50 via-white to-purple-50 rounded-xl p-5 shadow-sm border border-blue-100">
+                <div className="flex items-center gap-2 mb-4 pb-3 border-b border-blue-200">
+                  <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+                    <MapPin className="w-5 h-5 text-white" />
+                  </div>
+                  <h3 className="font-semibold text-gray-800">Report Details</h3>
+                </div>
+
+                <div className="grid gap-4">
+                  {/* Phone */}
+                  <div className="flex items-start gap-3 p-3 bg-white rounded-lg border border-gray-200">
+                    <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center shrink-0">
+                      <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                      </svg>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-medium text-gray-500 mb-1">Contact Number</div>
+                      <div className="text-sm font-semibold text-gray-900">{pinToConfirm.phone}</div>
+                    </div>
+                  </div>
+
+                  {/* Status */}
+                  <div className="flex items-start gap-3 p-3 bg-white rounded-lg border border-gray-200">
+                    <div className="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center shrink-0">
+                      <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-medium text-gray-500 mb-1">Current Status</div>
+                      <Badge className={getStatusColor(pinToConfirm.status)}>
+                        {pinToConfirm.status}
+                      </Badge>
+                    </div>
+                  </div>
+
+                  {/* Description */}
+                  <div className="flex items-start gap-3 p-3 bg-white rounded-lg border border-gray-200">
+                    <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center shrink-0">
+                      <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h7" />
+                      </svg>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-medium text-gray-500 mb-1">Description</div>
+                      <div className="text-sm text-gray-700 leading-relaxed">{pinToConfirm.description}</div>
+                    </div>
+                  </div>
+
+                  {/* Reporter */}
+                  <div className="flex items-start gap-3 p-3 bg-white rounded-lg border border-gray-200">
+                    <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center shrink-0">
+                      <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                      </svg>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-medium text-gray-500 mb-1">Reported By</div>
+                      <div className="text-sm font-medium text-gray-900">{pinToConfirm.createdBy}</div>
+                    </div>
+                  </div>
+
+                  {/* Timestamp */}
+                  <div className="flex items-start gap-3 p-3 bg-white rounded-lg border border-gray-200">
+                    <div className="w-10 h-10 bg-indigo-100 rounded-full flex items-center justify-center shrink-0">
+                      <Clock className="w-5 h-5 text-indigo-600" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-medium text-gray-500 mb-1">Report Time</div>
+                      <div className="text-sm font-medium text-gray-900">{pinToConfirm.createdAt.toLocaleString()}</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Photo */}
+                {pinToConfirm.image && (
+                  <div className="mt-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="w-6 h-6 bg-rose-100 rounded-md flex items-center justify-center">
+                        <svg className="w-4 h-4 text-rose-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                      </div>
+                      <span className="text-xs font-medium text-gray-500">Attached Photo</span>
+                    </div>
+                    <div className="w-full h-56 bg-gray-100 rounded-xl overflow-hidden border-2 border-gray-200 shadow-md">
+                      <img
+                        src={pinToConfirm.image}
+                        alt="Reported photo"
+                        className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* AI Suggestions for Confirm */}
+              <div className="space-y-2 border-t pt-4">
+                  {aiLoadingConfirm && (
+                    <div className="flex items-center gap-2 text-sm text-gray-500 bg-gray-50 p-3 rounded-lg">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>AI analyzing report…</span>
+                    </div>
+                  )}
+                  {!aiLoadingConfirm && aiSuggestConfirm && (
+                    <div className="rounded-xl overflow-hidden shadow-sm border border-gray-200">
+                      {/* Header with gradient */}
+                      <div className={`p-4 ${
+                        aiSuggestConfirm.severity >= 0.8
+                          ? "bg-linear-to-r from-red-500 to-red-600"
+                          : aiSuggestConfirm.severity >= 0.5
+                          ? "bg-linear-to-r from-yellow-500 to-orange-500"
+                          : "bg-linear-to-r from-green-500 to-emerald-600"
+                      }`}>
+                        <div className="flex items-center justify-between text-white">
+                          <div className="flex items-center gap-2">
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                            </svg>
+                            <span className="font-semibold text-base">AI Suggestions</span>
+                          </div>
+                          <div className="px-3 py-1 bg-white/20 backdrop-blur-sm rounded-full text-sm font-medium">
+                            {Math.round(aiSuggestConfirm.severity * 100)}% Severity
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Content */}
+                      <div className="p-4 bg-white space-y-3">
+                        {/* Categories */}
+                        <div className="flex flex-wrap gap-2">
+                          {aiSuggestConfirm.categories.map((cat, idx) => (
+                            <span key={idx} className="px-3 py-1 bg-blue-50 text-blue-700 rounded-full text-xs font-medium border border-blue-200">
+                              {cat}
+                            </span>
+                          ))}
+                        </div>
+
+                        {/* Suggested Items */}
+                        {aiSuggestConfirm.items.length > 0 ? (
+                          <div className="space-y-2">
+                            <div className="text-sm font-medium text-gray-700">Recommended Items:</div>
+                            <div className="grid gap-2">
+                              {aiSuggestConfirm.items.map((it, idx) => (
+                                <div key={idx} className="flex items-center justify-between p-2 bg-linear-to-r from-gray-50 to-gray-100 rounded-lg border border-gray-200">
+                                  <div className="flex items-center gap-2">
+                                    <div className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center">
+                                      <svg className="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                                      </svg>
+                                    </div>
+                                    <span className="text-sm font-medium text-gray-700">{it.name}</span>
+                                  </div>
+                                  <div className="flex items-center gap-1 bg-white px-3 py-1 rounded-md border border-gray-300">
+                                    <svg className="w-3 h-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                    <span className="text-sm font-semibold text-gray-800">{it.qty}</span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="text-center py-4 text-sm text-gray-500 bg-gray-50 rounded-lg border border-dashed border-gray-300">
+                            No specific items suggested
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  {!aiLoadingConfirm && aiErrorConfirm && (
+                    <div className="text-sm text-gray-400 bg-gray-50 p-3 rounded-lg border border-gray-200">
+                      {aiErrorConfirm}
+                    </div>
+                  )}
+                </div>
 
               {/* Items from Database */}
               <div className="space-y-3">
