@@ -30,7 +30,9 @@ import {
   UserPlus,
   Edit,
   Trash2,
-  Warehouse
+  Warehouse,
+  Mail,
+  Phone
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { Input } from '@/components/ui/input'
@@ -40,7 +42,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useLanguage } from '@/hooks/use-language'
 import { useAuth } from '@/hooks/use-auth'
 import { useToast } from '@/hooks/use-toast'
-import { fetchConfirmedPinsForDashboard, acceptHelpRequestItems, checkAndHandleCompletedPin } from '@/services/pins'
+import { fetchConfirmedPinsForDashboard, acceptHelpRequestItems, checkAndHandleCompletedPin, fetchAggregatedSuppliesByRegion } from '@/services/pins'
+import { fetchVolunteersForOrganization, createVolunteer, updateVolunteer, deleteVolunteer } from '@/services/volunteers'
 
 interface Volunteer {
   id: string
@@ -54,6 +57,9 @@ interface Volunteer {
   assignmentsCompleted: number
   password?: string
   assignment?: string
+  org_member_id?: string
+  user_id?: string
+  type?: 'tracking' | 'normal'
 }
 
 interface RequiredItem {
@@ -117,6 +123,14 @@ interface Supply {
   expiryDate?: Date
   lastUpdated: Date
   notes?: string
+}
+
+interface AggregatedSupply {
+  region: string
+  itemName: string
+  unit: string
+  totalQuantityNeeded: number
+  itemId: string
 }
 
 // Mock data
@@ -240,21 +254,19 @@ export default function OrganizationPage() {
   const [regionFilter, setRegionFilter] = useState<string>('all')
   const [partnerOrgs, setPartnerOrgs] = useState<PartnerOrg[]>(mockPartnerOrgs)
   const [supplies, setSupplies] = useState<Supply[]>(mockSupplies)
+  const [aggregatedSupplies, setAggregatedSupplies] = useState<AggregatedSupply[]>([])
   const [selectedRequest, setSelectedRequest] = useState<HelpRequest | null>(null)
   const [showAcceptDialog, setShowAcceptDialog] = useState(false)
   const [showCompleteDialog, setShowCompleteDialog] = useState(false)
   const [acceptQuantities, setAcceptQuantities] = useState<Record<string, number>>({})
   const [proofImage, setProofImage] = useState<File | null>(null)
   const [showRegisterVolunteer, setShowRegisterVolunteer] = useState(false)
+  const [editingVolunteer, setEditingVolunteer] = useState<Volunteer | null>(null)
   const [newVolunteer, setNewVolunteer] = useState({
     name: '',
     phone: '',
     email: '',
-    role: 'tracking_volunteer' as 'tracking_volunteer' | 'supply_volunteer',
-    location: '',
-    assignment: '',
-    status: 'pending' as 'pending' | 'active',
-    password: ''
+    role: 'tracking_volunteer' as 'tracking_volunteer' | 'supply_volunteer'
   })
   const [showAddSupply, setShowAddSupply] = useState(false)
   const [editingSupply, setEditingSupply] = useState<Supply | null>(null)
@@ -267,6 +279,7 @@ export default function OrganizationPage() {
     expiryDate: '',
     notes: ''
   })
+  const [isLoadingVolunteers, setIsLoadingVolunteers] = useState(false)
 
   // Redirect non-organization users
   useEffect(() => {
@@ -288,6 +301,47 @@ export default function OrganizationPage() {
     loadHelpRequests()
   }, [])
 
+  // Load aggregated supplies from database
+  useEffect(() => {
+    const loadAggregatedSupplies = async () => {
+      const result = await fetchAggregatedSuppliesByRegion()
+      if (result.success && result.supplies) {
+        console.log('✅ Aggregated supplies loaded:', result.supplies)
+        setAggregatedSupplies(result.supplies)
+      } else {
+        console.error('Failed to load aggregated supplies:', result.error)
+      }
+    }
+    loadAggregatedSupplies()
+  }, [])
+
+  // Load volunteers from database
+  useEffect(() => {
+    const loadVolunteers = async () => {
+      if (!user?.id) return
+      setIsLoadingVolunteers(true)
+      const result = await fetchVolunteersForOrganization(user.id)
+      if (result.success && result.volunteers) {
+        // Transform volunteers to match the Volunteer interface
+        const transformedVolunteers = result.volunteers.map(v => ({
+          ...v,
+          status: v.status as 'active' | 'inactive' | 'pending',
+          role: v.type === 'tracking' ? 'tracking_volunteer' as const : 'supply_volunteer' as const,
+          joinedAt: new Date(),
+          assignmentsCompleted: 0,
+          location: 'Organization',
+          password: undefined,
+          assignment: undefined
+        }))
+        setVolunteers(transformedVolunteers)
+      } else {
+        console.error('Failed to load volunteers:', result.error)
+      }
+      setIsLoadingVolunteers(false)
+    }
+    loadVolunteers()
+  }, [user?.id])
+
   const handleApproveVolunteer = (volunteerId: string) => {
     setVolunteers(volunteers.map(v => 
       v.id === volunteerId ? { ...v, status: 'active' } : v
@@ -300,38 +354,133 @@ export default function OrganizationPage() {
     ))
   }
 
-  const handleRegisterVolunteer = () => {
-    if (!newVolunteer.name || !newVolunteer.phone || !newVolunteer.password || !newVolunteer.location) {
-      alert('Please fill all required fields (Name, Phone, Password, Location)')
+  const handleRegisterVolunteer = async () => {
+    if (!newVolunteer.name || !newVolunteer.phone || !newVolunteer.email) {
+      toast({
+        title: "❌ Error",
+        description: 'Please fill all required fields (Name, Email, Phone)',
+        variant: "destructive",
+      })
       return
     }
 
-    const volunteer: Volunteer = {
-      id: Date.now().toString(),
-      name: newVolunteer.name,
-      email: newVolunteer.email || `${newVolunteer.phone}@volunteer.local`,
-      phone: newVolunteer.phone,
-      role: newVolunteer.role,
-      status: newVolunteer.status,
-      location: newVolunteer.location,
-      joinedAt: new Date(),
-      assignmentsCompleted: 0,
-      password: newVolunteer.password,
-      assignment: newVolunteer.assignment || undefined
+    if (!user?.id) {
+      toast({
+        title: "❌ Error",
+        description: 'Organization ID not found',
+        variant: "destructive",
+      })
+      return
     }
 
-    setVolunteers([...volunteers, volunteer])
+    if (editingVolunteer) {
+      // Update existing volunteer
+      if (!editingVolunteer.user_id) {
+        toast({
+          title: "❌ Error",
+          description: 'User ID not found',
+          variant: "destructive",
+        })
+        return
+      }
+
+      const result = await updateVolunteer(editingVolunteer.user_id, {
+        name: newVolunteer.name,
+        email: newVolunteer.email,
+        phone: newVolunteer.phone,
+        role: newVolunteer.role === 'tracking_volunteer' ? 'tracking' : 'normal'
+      })
+
+      if (result.success) {
+        toast({
+          title: "✅ Success",
+          description: 'Volunteer updated successfully',
+        })
+        setVolunteers(volunteers.map(v => 
+          v.id === editingVolunteer.id 
+            ? { ...v, name: newVolunteer.name, email: newVolunteer.email, phone: newVolunteer.phone, role: newVolunteer.role }
+            : v
+        ))
+        setEditingVolunteer(null)
+      } else {
+        toast({
+          title: "❌ Error",
+          description: result.error || 'Failed to update volunteer',
+          variant: "destructive",
+        })
+      }
+    } else {
+      // Create new volunteer
+      const result = await createVolunteer({
+        name: newVolunteer.name,
+        email: newVolunteer.email,
+        phone: newVolunteer.phone,
+        role: newVolunteer.role === 'tracking_volunteer' ? 'tracking' : 'normal',
+        organizationId: user.id
+      })
+
+      if (result.success && result.volunteer) {
+        toast({
+          title: "✅ Success",
+          description: 'Volunteer registered successfully',
+        })
+        const newVol: Volunteer = {
+          ...result.volunteer,
+          status: 'active' as const,
+          role: newVolunteer.role,
+          joinedAt: new Date(),
+          assignmentsCompleted: 0,
+          location: 'Organization',
+          password: undefined,
+          assignment: undefined
+        }
+        setVolunteers([...volunteers, newVol])
+      } else {
+        toast({
+          title: "❌ Error",
+          description: result.error || 'Failed to register volunteer',
+          variant: "destructive",
+        })
+      }
+    }
+
     setNewVolunteer({
       name: '',
       phone: '',
       email: '',
-      role: 'tracking_volunteer',
-      location: '',
-      assignment: '',
-      status: 'pending',
-      password: ''
+      role: 'tracking_volunteer'
     })
     setShowRegisterVolunteer(false)
+  }
+
+  const handleDeleteVolunteer = async (orgMemberId: string) => {
+    if (!confirm('Are you sure you want to delete this volunteer?')) return
+
+    const result = await deleteVolunteer(orgMemberId)
+    if (result.success) {
+      toast({
+        title: "✅ Success",
+        description: 'Volunteer deleted successfully',
+      })
+      setVolunteers(volunteers.filter(v => v.org_member_id !== orgMemberId))
+    } else {
+      toast({
+        title: "❌ Error",
+        description: result.error || 'Failed to delete volunteer',
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleEditVolunteer = (volunteer: Volunteer) => {
+    setEditingVolunteer(volunteer)
+    setNewVolunteer({
+      name: volunteer.name,
+      phone: volunteer.phone,
+      email: volunteer.email,
+      role: volunteer.role
+    })
+    setShowRegisterVolunteer(true)
   }
 
   const handleAddSupply = () => {
@@ -592,59 +741,59 @@ export default function OrganizationPage() {
     <div className="min-h-screen bg-gray-50 p-4">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">
+        <div className="mb-6 sm:mb-8">
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">
             {t('org.title')}
           </h1>
-          <p className="text-gray-600">Manage volunteers and coordinate relief efforts</p>
+          <p className="text-sm sm:text-base text-gray-600">Manage volunteers and coordinate relief efforts</p>
         </div>
 
         {/* Quick Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 lg:gap-6 mb-8">
           <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Active Volunteers</p>
-                  <p className="text-2xl font-bold text-green-600">{activeVolunteers}</p>
+            <CardContent className="p-4 sm:p-6">
+              <div className="flex items-center justify-between gap-2 sm:gap-4">
+                <div className="min-w-0">
+                  <p className="text-xs sm:text-sm font-medium text-gray-600 truncate">Active Volunteers</p>
+                  <p className="text-xl sm:text-2xl font-bold text-green-600">{activeVolunteers}</p>
                 </div>
-                <Users className="w-8 h-8 text-green-600" />
+                <Users className="w-6 sm:w-8 h-6 sm:h-8 text-green-600 shrink-0" />
               </div>
             </CardContent>
           </Card>
 
           <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Pending Approval</p>
-                  <p className="text-2xl font-bold text-yellow-600">{pendingVolunteers}</p>
+            <CardContent className="p-4 sm:p-6">
+              <div className="flex items-center justify-between gap-2 sm:gap-4">
+                <div className="min-w-0">
+                  <p className="text-xs sm:text-sm font-medium text-gray-600 truncate">Pending Approval</p>
+                  <p className="text-xl sm:text-2xl font-bold text-yellow-600">{pendingVolunteers}</p>
                 </div>
-                <Clock className="w-8 h-8 text-yellow-600" />
+                <Clock className="w-6 sm:w-8 h-6 sm:h-8 text-yellow-600 shrink-0" />
               </div>
             </CardContent>
           </Card>
 
           <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Help Requests</p>
-                  <p className="text-2xl font-bold text-orange-600">{pendingRequests}</p>
+            <CardContent className="p-4 sm:p-6">
+              <div className="flex items-center justify-between gap-2 sm:gap-4">
+                <div className="min-w-0">
+                  <p className="text-xs sm:text-sm font-medium text-gray-600 truncate">Help Requests</p>
+                  <p className="text-xl sm:text-2xl font-bold text-orange-600">{pendingRequests}</p>
                 </div>
-                <AlertTriangle className="w-8 h-8 text-orange-600" />
+                <AlertTriangle className="w-6 sm:w-8 h-6 sm:h-8 text-orange-600 shrink-0" />
               </div>
             </CardContent>
           </Card>
 
           <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Partnerships</p>
-                  <p className="text-2xl font-bold text-purple-600">{activeCollaborations}</p>
+            <CardContent className="p-4 sm:p-6">
+              <div className="flex items-center justify-between gap-2 sm:gap-4">
+                <div className="min-w-0">
+                  <p className="text-xs sm:text-sm font-medium text-gray-600 truncate">Partnerships</p>
+                  <p className="text-xl sm:text-2xl font-bold text-purple-600">{activeCollaborations}</p>
                 </div>
-                <Handshake className="w-8 h-8 text-purple-600" />
+                <Handshake className="w-6 sm:w-8 h-6 sm:h-8 text-purple-600 shrink-0" />
               </div>
             </CardContent>
           </Card>
@@ -653,19 +802,19 @@ export default function OrganizationPage() {
         {/* Help Requests - Main Feature */}
         <Card className="mb-8">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-2xl">
-              <AlertTriangle className="w-6 h-6 text-orange-500" />
+            <CardTitle className="flex items-center gap-2 text-lg sm:text-xl lg:text-2xl">
+              <AlertTriangle className="w-5 sm:w-6 h-5 sm:h-6 text-orange-500 shrink-0" />
               Help Requests (Confirmed Pins)
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
               {confirmedHelpRequests.map((request) => (
-                <Card key={request.id} className="p-4 hover:shadow-md transition-shadow">
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
-                        <h3 className="font-medium text-lg">{request.title}</h3>
+                <Card key={request.id} className="p-3 sm:p-4 hover:shadow-md transition-shadow">
+                  <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3 sm:gap-4">
+                    <div className="flex-1 w-full">
+                      <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-2">
+                        <h3 className="font-medium text-base sm:text-lg break-all">{request.title}</h3>
                         <Badge className={getStatusColor(request.status)}>
                           {request.status === 'partially_accepted' ? 'Partially Accepted' : request.status}
                         </Badge>
@@ -674,30 +823,32 @@ export default function OrganizationPage() {
                         <p className="text-sm text-gray-600 mb-3">{request.description}</p>
                       )}
                       
-                      <div className="flex items-center gap-4 text-xs text-gray-500 mb-3">
+                      <div className="flex flex-col sm:flex-row flex-wrap gap-2 sm:gap-4 text-xs text-gray-500 mb-3">
                         <div className="flex items-center gap-1">
-                          <MapPin className="w-3 h-3" />
-                          {request.location}
+                          <MapPin className="w-3 h-3 shrink-0" />
+                          <span className="break-all">{request.location}</span>
                         </div>
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1 shrink-0">
                           <Clock className="w-3 h-3" />
-                          {request.requestedAt.toLocaleString()}
+                          <span className="whitespace-nowrap">{request.requestedAt.toLocaleString()}</span>
                         </div>
-                        <div>Requested by: {request.requestedBy}</div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <span className="whitespace-nowrap">Requested by: {request.requestedBy}</span>
+                        </div>
                       </div>
 
                       {/* Required Items Summary */}
-                      <div className="mt-3 p-3 bg-gray-50 rounded-lg">
+                      <div className="mt-3 p-3 bg-gray-50 rounded-lg overflow-x-auto">
                         <div className="text-xs font-medium text-gray-700 mb-2">Required Items:</div>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
                           {request.requiredItems.map((item, idx) => {
                             const remaining = getRemainingQuantity(item)
                             const accepted = item.quantity - remaining
                             return (
-                              <div key={idx} className="text-xs">
+                              <div key={idx} className="text-xs min-w-0">
                                 <div className="flex items-center gap-1">
-                                  <Package className="w-3 h-3 text-gray-500" />
-                                  <span className="font-medium">{item.category}:</span>
+                                  <Package className="w-3 h-3 text-gray-500 shrink-0" />
+                                  <span className="font-medium truncate">{item.category}:</span>
                                 </div>
                                 <div className="ml-4 text-gray-600">
                                   {remaining} {item.unit} {accepted > 0 && `(${accepted} accepted)`}
@@ -709,23 +860,25 @@ export default function OrganizationPage() {
                       </div>
                     </div>
                     
-                    <div className="flex flex-col gap-3 items-center justify-center">
+                    <div className="flex flex-col sm:flex-row lg:flex-col gap-2 sm:gap-3 w-full sm:w-auto lg:w-auto items-stretch sm:items-center lg:items-stretch">
                       <Button 
                         size="default" 
                         variant="outline"
                         onClick={() => handleViewRequest(request)}
-                        className="flex items-center gap-2 min-w-[140px]"
+                        className="flex items-center justify-center gap-2 text-xs sm:text-sm"
                       >
                         <Eye className="w-4 h-4" />
-                        View Details
+                        <span className="hidden sm:inline">View Details</span>
+                        <span className="inline sm:hidden">Details</span>
                       </Button>
                       <Button 
                         size="default"
                         onClick={() => handleViewOnMap(request)}
-                        className="flex items-center gap-2 min-w-[140px]"
+                        className="flex items-center justify-center gap-2 text-xs sm:text-sm"
                       >
                         <Navigation className="w-4 h-4" />
-                        View on Map
+                        <span className="hidden sm:inline">View on Map</span>
+                        <span className="inline sm:hidden">Map</span>
                       </Button>
                     </div>
                   </div>
@@ -743,22 +896,27 @@ export default function OrganizationPage() {
 
         {/* Secondary Features - Tabs */}
         <Tabs defaultValue="volunteers" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="volunteers" className="flex items-center gap-2">
+          <TabsList className="grid w-full grid-cols-2 lg:grid-cols-4 gap-1 lg:gap-0">
+            <TabsTrigger value="volunteers" className="flex items-center justify-center gap-1 text-xs sm:text-sm">
               <Users className="w-4 h-4" />
-              {t('org.volunteerManagement')}
+              <span className="hidden sm:inline">{t('org.volunteerManagement')}</span>
+              <span className="inline sm:hidden">Volunteers</span>
             </TabsTrigger>
-            <TabsTrigger value="supplies" className="flex items-center gap-2">
+            <TabsTrigger value="supplies" className="flex items-center justify-center gap-1 text-xs sm:text-sm">
               <Warehouse className="w-4 h-4" />
-              Supply Management
+              <span className="hidden md:inline">Supplies</span>
+              <span className="inline md:hidden">Supply</span>
             </TabsTrigger>
-            <TabsTrigger value="supplies-needed" className="flex items-center gap-2">
+            <TabsTrigger value="supplies-needed" className="flex items-center justify-center gap-1 text-xs sm:text-sm">
               <Package className="w-4 h-4" />
-              Total Needed Supplies
+              <span className="hidden lg:inline">Needed Supplies</span>
+              <span className="hidden sm:inline lg:hidden">Needed</span>
+              <span className="inline sm:hidden">Needed</span>
             </TabsTrigger>
-            <TabsTrigger value="collaboration" className="flex items-center gap-2">
+            <TabsTrigger value="collaboration" className="flex items-center justify-center gap-1 text-xs sm:text-sm">
               <Handshake className="w-4 h-4" />
-              {t('org.collaboration')}
+              <span className="hidden sm:inline">{t('org.collaboration')}</span>
+              <span className="inline sm:hidden">Partners</span>
             </TabsTrigger>
           </TabsList>
 
@@ -785,7 +943,7 @@ export default function OrganizationPage() {
                     </DialogTrigger>
                     <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                       <DialogHeader>
-                        <DialogTitle>Register New Volunteer</DialogTitle>
+                        <DialogTitle>{editingVolunteer ? 'Edit Volunteer' : 'Register New Volunteer'}</DialogTitle>
                       </DialogHeader>
                       <div className="space-y-4">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -799,16 +957,7 @@ export default function OrganizationPage() {
                             />
                           </div>
                           <div>
-                            <Label htmlFor="volunteer-phone">Phone Number *</Label>
-                            <Input
-                              id="volunteer-phone"
-                              value={newVolunteer.phone}
-                              onChange={(e) => setNewVolunteer(prev => ({ ...prev, phone: e.target.value }))}
-                              placeholder="+959123456789"
-                            />
-                          </div>
-                          <div>
-                            <Label htmlFor="volunteer-email">Email</Label>
+                            <Label htmlFor="volunteer-email">Email *</Label>
                             <Input
                               id="volunteer-email"
                               type="email"
@@ -818,13 +967,12 @@ export default function OrganizationPage() {
                             />
                           </div>
                           <div>
-                            <Label htmlFor="volunteer-password">Password *</Label>
+                            <Label htmlFor="volunteer-phone">Phone Number *</Label>
                             <Input
-                              id="volunteer-password"
-                              type="password"
-                              value={newVolunteer.password}
-                              onChange={(e) => setNewVolunteer(prev => ({ ...prev, password: e.target.value }))}
-                              placeholder="Enter password"
+                              id="volunteer-phone"
+                              value={newVolunteer.phone}
+                              onChange={(e) => setNewVolunteer(prev => ({ ...prev, phone: e.target.value }))}
+                              placeholder="+959123456789"
                             />
                           </div>
                           <div>
@@ -839,65 +987,36 @@ export default function OrganizationPage() {
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="tracking_volunteer">Tracking Volunteer</SelectItem>
-                                <SelectItem value="supply_volunteer">Supply Volunteer</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div>
-                            <Label htmlFor="volunteer-location">Location *</Label>
-                            <Input
-                              id="volunteer-location"
-                              value={newVolunteer.location}
-                              onChange={(e) => setNewVolunteer(prev => ({ ...prev, location: e.target.value }))}
-                              placeholder="Enter location"
-                            />
-                          </div>
-                          <div>
-                            <Label htmlFor="volunteer-assignment">Assignment</Label>
-                            <Input
-                              id="volunteer-assignment"
-                              value={newVolunteer.assignment}
-                              onChange={(e) => setNewVolunteer(prev => ({ ...prev, assignment: e.target.value }))}
-                              placeholder="Enter assignment details"
-                            />
-                          </div>
-                          <div>
-                            <Label htmlFor="volunteer-status">Status *</Label>
-                            <Select 
-                              value={newVolunteer.status} 
-                              onValueChange={(value: 'pending' | 'active') => 
-                                setNewVolunteer(prev => ({ ...prev, status: value }))
-                              }
-                            >
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="pending">Pending</SelectItem>
-                                <SelectItem value="active">Active</SelectItem>
+                                <SelectItem value="tracking_volunteer">Tracking</SelectItem>
+                                <SelectItem value="supply_volunteer">Normal</SelectItem>
                               </SelectContent>
                             </Select>
                           </div>
                         </div>
                         <div className="flex gap-2 pt-4 border-t">
-                          <Button onClick={handleRegisterVolunteer} className="flex-1">
-                            <UserPlus className="w-4 h-4 mr-2" />
-                            Register Volunteer
+                          <Button onClick={handleRegisterVolunteer} className="flex-1 bg-blue-600 hover:bg-blue-700">
+                            {editingVolunteer ? (
+                              <>
+                                <Edit className="w-4 h-4 mr-2" />
+                                Update Volunteer
+                              </>
+                            ) : (
+                              <>
+                                <UserPlus className="w-4 h-4 mr-2" />
+                                Register Volunteer
+                              </>
+                            )}
                           </Button>
                           <Button 
                             variant="outline"
                             onClick={() => {
                               setShowRegisterVolunteer(false)
+                              setEditingVolunteer(null)
                               setNewVolunteer({
                                 name: '',
                                 phone: '',
                                 email: '',
-                                role: 'tracking_volunteer',
-                                location: '',
-                                assignment: '',
-                                status: 'pending',
-                                password: ''
+                                role: 'tracking_volunteer'
                               })
                             }}
                           >
@@ -910,76 +1029,71 @@ export default function OrganizationPage() {
                 </div>
               </CardHeader>
               <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Volunteer</TableHead>
-                      <TableHead>Role</TableHead>
-                      <TableHead>Location</TableHead>
-                      <TableHead>Assignment</TableHead>
-                      <TableHead>Assignments</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {volunteers.map((volunteer) => (
-                      <TableRow key={volunteer.id}>
-                        <TableCell>
-                          <div>
-                            <div className="font-medium">{volunteer.name}</div>
-                            <div className="text-sm text-gray-500">{volunteer.email}</div>
-                            <div className="text-xs text-gray-400">{volunteer.phone}</div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={volunteer.role === 'tracking_volunteer' ? 'default' : 'secondary'}>
-                            {volunteer.role === 'tracking_volunteer' ? 'Tracking' : 'Supply'}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-1">
-                            <MapPin className="w-4 h-4 text-gray-500" />
-                            {volunteer.location}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="text-sm text-gray-600">
-                            {volunteer.assignment || 'No assignment'}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-1">
-                            <TrendingUp className="w-4 h-4 text-gray-500" />
-                            {volunteer.assignmentsCompleted}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge className={getStatusColor(volunteer.status)}>
-                            {volunteer.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            {volunteer.status === 'pending' && (
-                              <>
-                                <Button size="sm" onClick={() => handleApproveVolunteer(volunteer.id)}>
-                                  <Check className="w-3 h-3" />
-                                </Button>
-                                <Button size="sm" variant="outline" onClick={() => handleRejectVolunteer(volunteer.id)}>
-                                  <X className="w-3 h-3" />
-                                </Button>
-                              </>
-                            )}
-                            <Button size="sm" variant="outline">
-                              <MessageCircle className="w-3 h-3" />
-                            </Button>
-                          </div>
-                        </TableCell>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-blue-50 hover:bg-blue-100 border-b-2 border-blue-200 transition-colors">
+                        <TableHead className="font-bold text-gray-800">Name</TableHead>
+                        <TableHead className="font-bold text-gray-800">Role</TableHead>
+                        <TableHead className="font-bold text-gray-800">Email</TableHead>
+                        <TableHead className="font-bold text-gray-800">Phone</TableHead>
+                        <TableHead className="font-bold text-gray-800 text-center">Actions</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {volunteers.map((volunteer) => (
+                        <TableRow key={volunteer.id} className="hover:bg-blue-50 transition-colors border-b border-gray-200">
+                          <TableCell>
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white text-sm font-bold">
+                                {volunteer.name.charAt(0).toUpperCase()}
+                              </div>
+                              <span className="font-semibold text-gray-900">{volunteer.name}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={volunteer.role === 'tracking_volunteer' ? 'default' : 'secondary'} className="px-3 py-1">
+                              {volunteer.role === 'tracking_volunteer' ? 'Tracking' : 'Normal'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div className="text-sm text-gray-700 flex items-center gap-2">
+                              <Mail className="w-4 h-4 text-gray-400" />
+                              {volunteer.email}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="text-sm text-gray-700 flex items-center gap-2">
+                              <Phone className="w-4 h-4 text-gray-400" />
+                              {volunteer.phone}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center justify-center gap-3">
+                              <Button 
+                                size="sm" 
+                                onClick={() => handleEditVolunteer(volunteer)}
+                                className="bg-blue-500 hover:bg-blue-600 text-white rounded-full p-2 transition-all hover:scale-110 shadow-md hover:shadow-lg"
+                                title="Edit volunteer"
+                              >
+                                <Edit className="w-4 h-4" />
+                              </Button>
+                              <Button 
+                                size="sm" 
+                                variant="outline"
+                                onClick={() => volunteer.org_member_id && handleDeleteVolunteer(volunteer.org_member_id)}
+                                className="border-red-300 text-red-600 hover:bg-red-50 rounded-full p-2 transition-all hover:scale-110"
+                                title="Delete volunteer"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -1137,18 +1251,19 @@ export default function OrganizationPage() {
                 </div>
               </CardHeader>
               <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Category</TableHead>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Quantity</TableHead>
-                      <TableHead>Location</TableHead>
-                      <TableHead>Expiry Date</TableHead>
-                      <TableHead>Last Updated</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Category</TableHead>
+                        <TableHead>Name</TableHead>
+                        <TableHead>Quantity</TableHead>
+                        <TableHead>Location</TableHead>
+                        <TableHead>Expiry Date</TableHead>
+                        <TableHead>Last Updated</TableHead>
+                        <TableHead>Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
                   <TableBody>
                     {supplies.length === 0 ? (
                       <TableRow>
@@ -1229,6 +1344,7 @@ export default function OrganizationPage() {
                     )}
                   </TableBody>
                 </Table>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -1265,98 +1381,65 @@ export default function OrganizationPage() {
                 </div>
               </CardHeader>
               <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Region</TableHead>
-                      <TableHead>Category</TableHead>
-                      <TableHead>Unit</TableHead>
-                      <TableHead>Total Quantity Needed</TableHead>
-                    </TableRow>
-                  </TableHeader>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-blue-50 hover:bg-blue-100 border-b-2 border-blue-200">
+                        <TableHead className="font-bold text-gray-800">Region</TableHead>
+                        <TableHead className="font-bold text-gray-800">Item Name</TableHead>
+                        <TableHead className="font-bold text-gray-800">Unit</TableHead>
+                        <TableHead className="font-bold text-gray-800 text-right">Total Quantity Needed</TableHead>
+                      </TableRow>
+                    </TableHeader>
                   <TableBody>
                     {(() => {
-                      // Get all confirmed help requests (pending or partially_accepted - these are the active requests)
-                      const confirmedRequests = helpRequests.filter(
-                        r => (r.status === 'pending' || r.status === 'partially_accepted') && r.region
-                      )
+                      // Filter aggregated supplies by region if selected
+                      const filteredSupplies = regionFilter === 'all'
+                        ? aggregatedSupplies
+                        : aggregatedSupplies.filter(s => s.region === regionFilter)
 
-                      // Filter by region if filter is set
-                      const filteredRequests = regionFilter === 'all' 
-                        ? confirmedRequests 
-                        : confirmedRequests.filter(r => r.region === regionFilter)
-
-                      // Get unique regions
-                      const regions = Array.from(new Set(filteredRequests.map(r => r.region).filter(Boolean))) as string[]
-                      
-                      // Standard supply categories
-                      const standardCategories = ['Food Packs', 'Water Bottles', 'Medicine Box', 'Clothes Packs', 'Blankets']
-                      const categoryMap: Record<string, string> = {
-                        'Food pack': 'Food Packs',
-                        'Food': 'Food Packs',
-                        'Water': 'Water Bottles',
-                        'Medicine': 'Medicine Box',
-                        'Clothes': 'Clothes Packs',
-                        'Clothing': 'Clothes Packs',
-                        'Blanket': 'Blankets',
-                        'Blankets': 'Blankets'
-                      }
-
-                      // Unit mapping for each category
-                      const unitMap: Record<string, string> = {
-                        'Food Packs': 'packs',
-                        'Water Bottles': 'bottles',
-                        'Medicine Box': 'boxes',
-                        'Clothes Packs': 'packs',
-                        'Blankets': 'pieces'
-                      }
-
-                      if (regions.length === 0) {
+                      if (filteredSupplies.length === 0) {
                         return (
                           <TableRow>
                             <TableCell colSpan={4} className="text-center py-8 text-gray-500">
-                              No confirmed help requests with supply needs found.
+                              No supplies needed{regionFilter !== 'all' ? ` in ${regionFilter}` : ''}.
                             </TableCell>
                           </TableRow>
                         )
                       }
 
-                      // Build table rows: for each region, show all 5 categories
-                      const rows: React.ReactElement[] = []
-                      
-                      regions.forEach(region => {
-                        // Aggregate supplies for this region
-                        const regionRequests = filteredRequests.filter(r => r.region === region)
-                        const regionSupplies: Record<string, number> = {}
-                        
-                        regionRequests.forEach(request => {
-                          request.requiredItems.forEach(item => {
-                            const standardCategory = categoryMap[item.category] || item.category
-                            if (standardCategories.includes(standardCategory)) {
-                              const key = standardCategory
-                              regionSupplies[key] = (regionSupplies[key] || 0) + item.quantity
-                            }
-                          })
-                        })
+                      // Group supplies by region
+                      const suppliesByRegion: { [region: string]: AggregatedSupply[] } = {}
+                      filteredSupplies.forEach(supply => {
+                        if (!suppliesByRegion[supply.region]) {
+                          suppliesByRegion[supply.region] = []
+                        }
+                        suppliesByRegion[supply.region].push(supply)
+                      })
 
-                        // Create rows for all 5 categories for this region
-                        standardCategories.forEach((category, idx) => {
-                          const quantity = regionSupplies[category] || 0
-                          const unit = unitMap[category]
-                          
+                      const rows: React.ReactElement[] = []
+                      const regionNames = Object.keys(suppliesByRegion).sort()
+
+                      regionNames.forEach((region) => {
+                        const regionSupplies = suppliesByRegion[region]
+                        const CATEGORY_COUNT = 6 // Fixed 6 categories
+
+                        regionSupplies.forEach((supply, idx) => {
                           rows.push(
-                            <TableRow key={`${region}-${category}`}>
+                            <TableRow key={`${region}-${supply.itemName}-${idx}`} className="hover:bg-blue-50 transition-colors">
                               {idx === 0 ? (
-                                <TableCell rowSpan={standardCategories.length} className="font-medium align-top border-r">
-                                  {region}
+                                <TableCell rowSpan={CATEGORY_COUNT} className="font-semibold align-top border-r bg-gray-50">
+                                  <div className="py-4">{region}</div>
                                 </TableCell>
                               ) : null}
-                              <TableCell className="font-medium">{category}</TableCell>
-                              <TableCell>{unit}</TableCell>
+                              <TableCell className="font-medium text-gray-700">{supply.itemName}</TableCell>
+                              <TableCell className="text-gray-600">{supply.unit}</TableCell>
                               <TableCell>
-                                <div className="flex items-center gap-2">
-                                  <Package className="w-4 h-4 text-gray-500" />
-                                  <span className="font-semibold text-lg">{quantity.toLocaleString()}</span>
+                                <div className="flex items-center justify-end gap-2">
+                                  <Package className="w-4 h-4 text-blue-500" />
+                                  <span className={`font-semibold text-lg ${supply.totalQuantityNeeded > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
+                                    {supply.totalQuantityNeeded}
+                                  </span>
                                 </div>
                               </TableCell>
                             </TableRow>
@@ -1368,6 +1451,7 @@ export default function OrganizationPage() {
                     })()}
                   </TableBody>
                 </Table>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -1385,7 +1469,7 @@ export default function OrganizationPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4">
                   {partnerOrgs.map((org) => (
                     <Card key={org.id}>
                       <CardContent className="p-4">

@@ -791,9 +791,12 @@ export async function getReverseGeocodedAddress(
       return { success: false, error: data?.error || `HTTP ${response.status}` }
     }
 
+    const address = data.primary_address || 'Address not found'
+    console.log('✅ Geocoded address:', { lat, lng, address })
+    
     return {
       success: true,
-      address: data.primary_address || 'Address not found',
+      address,
     }
   } catch (err) {
     console.error('Error in getReverseGeocodedAddress:', err)
@@ -1202,5 +1205,119 @@ export async function deletePinIfNoItemsRemain(
   } catch (err) {
     console.error(`❌ Error in deletePinIfNoItemsRemain for pin ${pinId}:`, err)
     return { success: false, deleted: false, error: 'Failed to delete pin' }
+  }
+}
+
+/**
+ * Fetch aggregated supply needs grouped by region
+ * Returns: { region, category, unit, totalQuantityNeeded }
+ */
+export async function fetchAggregatedSuppliesByRegion(): Promise<{
+  success: boolean
+  supplies?: Array<{
+    region: string
+    itemName: string
+    unit: string
+    totalQuantityNeeded: number
+    itemId: string
+  }>
+  error?: string
+}> {
+  try {
+    // Step 1: Fetch confirmed pins
+    const { data: confirmedPins, error: pinsError } = await supabase
+      .from('pins')
+      .select('id, latitude, longitude')
+      .eq('status', 'confirmed')
+
+    if (pinsError || !confirmedPins || confirmedPins.length === 0) {
+      console.log('📍 No confirmed pins found')
+      return { success: true, supplies: [] }
+    }
+
+    // Step 2: Fetch pin_items with item details
+    const confirmedPinIds = confirmedPins.map(p => p.id)
+    const { data: pinItemsData, error: pinItemsError } = await supabase
+      .from('pin_items')
+      .select(`
+        id,
+        pin_id,
+        item_id,
+        remaining_qty,
+        requested_qty,
+        items (
+          id,
+          name,
+          unit
+        )
+      `)
+      .in('pin_id', confirmedPinIds)
+
+    if (pinItemsError || !pinItemsData || pinItemsData.length === 0) {
+      console.log('📍 No pin items found')
+      return { success: true, supplies: [] }
+    }
+
+    // Step 3: Build pin coordinate map
+    const pinCoordinatesMap: { [pinId: string]: { lat: number; lng: number } } = {}
+    confirmedPins.forEach((pin: any) => {
+      pinCoordinatesMap[pin.id] = {
+        lat: parseFloat(pin.latitude),
+        lng: parseFloat(pin.longitude),
+      }
+    })
+
+    // Step 4: Geocode pins to regions
+    const pinRegionMap: { [pinId: string]: string } = {}
+    for (const pin of confirmedPins) {
+      const coords = pinCoordinatesMap[pin.id]
+      if (coords && !isNaN(coords.lat) && !isNaN(coords.lng) &&
+          coords.lat >= -90 && coords.lat <= 90 &&
+          coords.lng >= -180 && coords.lng <= 180) {
+        const geoResult = await getReverseGeocodedAddress(coords.lat, coords.lng)
+        pinRegionMap[pin.id] = geoResult.success && geoResult.address ? geoResult.address : 'Unknown Region'
+      } else {
+        pinRegionMap[pin.id] = 'Unknown Region'
+      }
+    }
+
+    // Step 5: Aggregate by (region, itemName)
+    const aggregatedMap: { [key: string]: { region: string; itemName: string; unit: string; itemId: string; totalQuantityNeeded: number } } = {}
+
+    pinItemsData.forEach((pinItem: any) => {
+      const pinId = pinItem.pin_id
+      const region = pinRegionMap[pinId]
+      if (!region) return
+
+      const itemInfo = pinItem.items
+      if (!itemInfo) return
+
+      const itemName = itemInfo.name || 'Unknown Item'
+      const unit = itemInfo.unit || 'Unknown Unit'
+      const remainingQty = pinItem.remaining_qty !== null && pinItem.remaining_qty !== undefined 
+        ? pinItem.remaining_qty 
+        : (pinItem.requested_qty || 0)
+
+      const key = `${region}|${itemName}`
+
+      if (!aggregatedMap[key]) {
+        aggregatedMap[key] = {
+          region,
+          itemName,
+          unit,
+          itemId: pinItem.item_id,
+          totalQuantityNeeded: 0,
+        }
+      }
+
+      aggregatedMap[key].totalQuantityNeeded += remainingQty
+    })
+
+    const supplies = Object.values(aggregatedMap)
+    console.log(`✅ Returning ${supplies.length} supplies`)
+    return { success: true, supplies }
+  } catch (err) {
+    console.error('Error in fetchAggregatedSuppliesByRegion:', err)
+    return { success: false, error: 'Failed to fetch aggregated supplies' }
   }
 }
