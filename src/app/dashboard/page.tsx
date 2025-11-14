@@ -243,7 +243,7 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-  <div className="max-w-360 mx-auto px-4 sm:px-6 lg:px-8">
+      <div className="max-w-360 mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
 
         {/* Calm Welcome Card */}
@@ -263,8 +263,8 @@ export default function DashboardPage() {
           </div>
         </div>
 
-    {/* Quick Stats */}
-  <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-12 md:mb-8">
+        {/* Quick Stats */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-12 md:mb-8">
           <Card>
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
@@ -330,8 +330,8 @@ export default function DashboardPage() {
           </Card>
         </div>
 
-        <Tabs defaultValue="family" className="space-y-6">
-          <TabsList className="flex flex-wrap w-full justify-center gap-2">
+        <Tabs defaultValue="family" className="space-y-8">
+          <TabsList className="flex flex-wrap w-full justify-center gap-4">
             <TabsTrigger value="family" className="flex items-center gap-2">
               <Users className="w-4 h-4" />
               {t("dashboard.familyMembers")}
@@ -391,9 +391,6 @@ export default function DashboardPage() {
                           <div className="flex-1">
                             <h3 className="font-medium flex items-center gap-2">
                               {module.title}
-                              {/* {module.isLocked && (
-                                <Lock className="w-4 h-4 text-gray-500" />
-                              )} */}
                               {module.badge && (
                                 <Badge variant="secondary">
                                   {module.badge}
@@ -410,45 +407,12 @@ export default function DashboardPage() {
                             </div>
 
                             <div className="mt-3">
-                              {/* {module.isLocked ? (
-                                <Button size="sm" disabled className="w-full">
-                                  <Lock className="w-3 h-3 mr-1" />
-                                  {t("safety.locked")}
-                                </Button>
-                              ) : module.progress === 100 ? (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="w-full"
-                                >
-                                  <CheckCircle className="w-3 h-3 mr-1" />
-                                  {t("safety.completed")}
-                                </Button>
-                              ) : (
-                                <Link
-                                  key={module.id}
-                                  href={`/safetycourse/${module.id}`}
-                                  // size="sm"
-                                  onClick={() => handleStartModule(module.id)}
-                                  className="w-full"
-                                >
-                                  <Play className="w-3 h-3 mr-1" />
-                                  {module.progress > 0
-                                    ? t("safety.continue")
-                                    : t("safety.start")}
-                                </Link>
-                              )} */}
                               <Link
                                 key={module.id}
                                 href={`/safetycourse/${module.id}`}
-                                // size="sm"
-                                // onClick={() => handleStartModule(module.id)}
                                 className="flex items-center justify-center w-full bg-black rounded-lg text-white py-2"
                               >
                                 <Play className="w-3 h-3 mr-1" />
-                                {/* {module.progress > 0
-                                  ? t("safety.continue")
-                                  : t("safety.start")} */}
                                 {t("safety.start")}
                               </Link>
                             </div>
@@ -463,7 +427,7 @@ export default function DashboardPage() {
           </TabsContent>
 
           {/* Recent Alerts Tab */}
-          <TabsContent value="alerts" className="space-y-6 pb-8">
+          <TabsContent value="alerts" className="space-y-6 pb-8 mt-5">
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
