@@ -139,6 +139,7 @@ export default function AdminPage() {
     password: "",
     region: "",
     funding: "",
+    status: "pending" as "active" | "inactive" | "pending",
   });
   const [editUserData, setEditUserData] = useState({
     name: "",
@@ -147,6 +148,10 @@ export default function AdminPage() {
     role: "user" as PlatformUser["role"],
   });
   const [loading, setLoading] = useState(true);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [deleteOrgDialogOpen, setDeleteOrgDialogOpen] = useState(false);
+  const [deleteUserDialogOpen, setDeleteUserDialogOpen] = useState(false);
+  const [editUserDialogOpen, setEditUserDialogOpen] = useState(false);
 
   // Redirect non-admin users
   useEffect(() => {
@@ -252,7 +257,7 @@ export default function AdminPage() {
             region: newOrg.region,
             funding: newOrg.funding || "$0",
             volunteer_count: 0,
-            status: 'pending',
+            status: newOrg.status,
             role: 'organization'
           }
         ])
@@ -267,7 +272,7 @@ export default function AdminPage() {
       if (data) {
         setOrganizations(prev => [{
           ...data[0],
-          status: "pending",
+          status: newOrg.status,
           volunteer_count: 0,
           funding: newOrg.funding || "$0",
           contactEmail: newOrg.email,
@@ -290,6 +295,7 @@ export default function AdminPage() {
           password: "",
           region: "",
           funding: "",
+          status: "pending",
         });
         alert('Organization registered successfully!');
       }
@@ -313,6 +319,7 @@ export default function AdminPage() {
           password: newOrg.password,
           region: newOrg.region,
           funding: newOrg.funding,
+          status: newOrg.status,
         })
         .eq('id', editingOrg.id);
 
@@ -337,6 +344,7 @@ export default function AdminPage() {
       );
 
       setEditingOrg(null);
+      setEditDialogOpen(false);
       setNewOrg({
         name: "",
         email: "",
@@ -345,6 +353,7 @@ export default function AdminPage() {
         password: "",
         region: "",
         funding: "",
+        status: "pending",
       });
       alert('Organization updated successfully!');
     } catch (error) {
@@ -370,6 +379,7 @@ export default function AdminPage() {
 
       setOrganizations(prev => prev.filter((org) => org.id !== deleteOrgId));
       setDeleteOrgId(null);
+      setDeleteOrgDialogOpen(false);
       alert('Organization deleted successfully!');
     } catch (error) {
       console.error('Error deleting organization:', error);
@@ -436,6 +446,7 @@ export default function AdminPage() {
       phone: user.phone || "",
       role: user.role,
     });
+    setEditUserDialogOpen(true);
   };
 
   const handleUpdateUser = async () => {
@@ -465,6 +476,7 @@ export default function AdminPage() {
       );
 
       setEditingUser(null);
+      setEditUserDialogOpen(false);
       setEditUserData({
         name: "",
         email: "",
@@ -495,6 +507,7 @@ export default function AdminPage() {
 
       setPlatformUsers(prev => prev.filter((user) => user.id !== deleteUserId));
       setDeleteUserId(null);
+      setDeleteUserDialogOpen(false);
       alert('User deleted successfully!');
     } catch (error) {
       console.error('Error deleting user:', error);
@@ -841,7 +854,7 @@ export default function AdminPage() {
                               )}
                               
                               {/* Edit Organization Dialog */}
-                              <Dialog>
+                              <Dialog open={editDialogOpen && editingOrg?.id === org.id} onOpenChange={setEditDialogOpen}>
                                 <DialogTrigger asChild>
                                   <Button
                                     size="sm"
@@ -856,7 +869,9 @@ export default function AdminPage() {
                                         password: org.password || "",
                                         region: org.region || "",
                                         funding: org.funding || "",
+                                        status: org.status,
                                       });
+                                      setEditDialogOpen(true);
                                     }}
                                   >
                                     <Edit className="w-3 h-3" />
@@ -958,6 +973,27 @@ export default function AdminPage() {
                                         </Select>
                                       </div>
                                       <div>
+                                        <Label htmlFor="edit-org-status">Status</Label>
+                                        <Select
+                                          value={newOrg.status}
+                                          onValueChange={(value: "active" | "inactive" | "pending") =>
+                                            setNewOrg(prev => ({
+                                              ...prev,
+                                              status: value
+                                            }))
+                                          }
+                                        >
+                                          <SelectTrigger>
+                                            <SelectValue />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            <SelectItem value="active">Active</SelectItem>
+                                            <SelectItem value="pending">Pending</SelectItem>
+                                            <SelectItem value="inactive">Inactive</SelectItem>
+                                          </SelectContent>
+                                        </Select>
+                                      </div>
+                                      <div>
                                         <Label htmlFor="edit-org-funding">Funding</Label>
                                         <Input
                                           id="edit-org-funding"
@@ -988,7 +1024,10 @@ export default function AdminPage() {
                                   <DialogFooter>
                                     <Button
                                       variant="outline"
-                                      onClick={() => setEditingOrg(null)}
+                                      onClick={() => {
+                                        setEditingOrg(null);
+                                        setEditDialogOpen(false);
+                                      }}
                                     >
                                       Cancel
                                     </Button>
@@ -1000,12 +1039,15 @@ export default function AdminPage() {
                               </Dialog>
 
                               {/* Delete Organization Dialog */}
-                              <Dialog>
+                              <Dialog open={deleteOrgDialogOpen && deleteOrgId === org.id} onOpenChange={setDeleteOrgDialogOpen}>
                                 <DialogTrigger asChild>
                                   <Button
                                     size="sm"
                                     variant="destructive"
-                                    onClick={() => setDeleteOrgId(org.id)}
+                                    onClick={() => {
+                                      setDeleteOrgId(org.id);
+                                      setDeleteOrgDialogOpen(true);
+                                    }}
                                   >
                                     <Trash2 className="w-3 h-3" />
                                   </Button>
@@ -1020,7 +1062,10 @@ export default function AdminPage() {
                                   <DialogFooter>
                                     <Button
                                       variant="outline"
-                                      onClick={() => setDeleteOrgId(null)}
+                                      onClick={() => {
+                                        setDeleteOrgId(null);
+                                        setDeleteOrgDialogOpen(false);
+                                      }}
                                     >
                                       Cancel
                                     </Button>
@@ -1153,7 +1198,7 @@ export default function AdminPage() {
                             <TableCell>
                               <div className="flex items-center gap-2">
                                 {/* Edit User Dialog */}
-                                <Dialog>
+                                <Dialog open={editUserDialogOpen && editingUser?.id === user.id} onOpenChange={setEditUserDialogOpen}>
                                   <DialogTrigger asChild>
                                     <Button
                                       size="sm"
@@ -1240,7 +1285,10 @@ export default function AdminPage() {
                                     <DialogFooter>
                                       <Button
                                         variant="outline"
-                                        onClick={() => setEditingUser(null)}
+                                        onClick={() => {
+                                          setEditingUser(null);
+                                          setEditUserDialogOpen(false);
+                                        }}
                                       >
                                         Cancel
                                       </Button>
@@ -1252,12 +1300,15 @@ export default function AdminPage() {
                                 </Dialog>
 
                                 {/* Delete User Dialog */}
-                                <Dialog>
+                                <Dialog open={deleteUserDialogOpen && deleteUserId === user.id} onOpenChange={setDeleteUserDialogOpen}>
                                   <DialogTrigger asChild>
                                     <Button
                                       size="sm"
                                       variant="destructive"
-                                      onClick={() => setDeleteUserId(user.id)}
+                                      onClick={() => {
+                                        setDeleteUserId(user.id);
+                                        setDeleteUserDialogOpen(true);
+                                      }}
                                     >
                                       <Trash2 className="w-3 h-3" />
                                     </Button>
@@ -1272,7 +1323,10 @@ export default function AdminPage() {
                                     <DialogFooter>
                                       <Button
                                         variant="outline"
-                                        onClick={() => setDeleteUserId(null)}
+                                        onClick={() => {
+                                          setDeleteUserId(null);
+                                          setDeleteUserDialogOpen(false);
+                                        }}
                                       >
                                         Cancel
                                       </Button>
@@ -1587,6 +1641,25 @@ export default function AdminPage() {
                     </div>
 
                     <div>
+                      <Label htmlFor="org-status">Status</Label>
+                      <Select
+                        value={newOrg.status}
+                        onValueChange={(value: "active" | "inactive" | "pending") =>
+                          setNewOrg((prev) => ({ ...prev, status: value }))
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select status" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="active">Active</SelectItem>
+                          <SelectItem value="pending">Pending</SelectItem>
+                          <SelectItem value="inactive">Inactive</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div>
                       <Label htmlFor="org-funding">Funding</Label>
                       <Input
                         id="org-funding"
@@ -1631,4 +1704,4 @@ export default function AdminPage() {
       </div>
     </div>
   );
-}
+};
