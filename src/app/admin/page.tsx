@@ -805,25 +805,29 @@ export default function AdminPage() {
         </div>
 
         <Tabs defaultValue="organizations" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-2 h-auto p-2">
             <TabsTrigger
               value="organizations"
-              className="flex items-center gap-2"
+              className="flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm px-2 sm:px-3"
             >
-              <Building className="w-4 h-4" />
-              {t("admin.manageOrgs")}
+              <Building className="w-3 h-3 sm:w-4 sm:h-4" />
+              <span className="hidden xs:inline">{t("admin.manageOrgs")}</span>
+              <span className="xs:hidden">Orgs</span>
             </TabsTrigger>
-            <TabsTrigger value="users" className="flex items-center gap-2">
-              <Users className="w-4 h-4" />
-              Manage Users
+            <TabsTrigger value="users" className="flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm px-2 sm:px-3">
+              <Users className="w-3 h-3 sm:w-4 sm:h-4" />
+              <span className="hidden xs:inline">Manage Users</span>
+              <span className="xs:hidden">Users</span>
             </TabsTrigger>
-            <TabsTrigger value="analytics" className="flex items-center gap-2">
-              <BarChart3 className="w-4 h-4" />
-              Analytics
+            <TabsTrigger value="analytics" className="flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm px-2 sm:px-3">
+              <BarChart3 className="w-3 h-3 sm:w-4 sm:h-4" />
+              <span className="hidden xs:inline">Analytics</span>
+              <span className="xs:hidden">Stats</span>
             </TabsTrigger>
-            <TabsTrigger value="register" className="flex items-center gap-2">
-              <Plus className="w-4 h-4" />
-              {t("admin.registerOrg")}
+            <TabsTrigger value="register" className="flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm px-2 sm:px-3">
+              <Plus className="w-3 h-3 sm:w-4 sm:h-4" />
+              <span className="hidden xs:inline">{t("admin.registerOrg")}</span>
+              <span className="xs:hidden">Add</span>
             </TabsTrigger>
           </TabsList>
 

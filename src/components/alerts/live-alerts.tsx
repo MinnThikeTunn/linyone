@@ -542,7 +542,7 @@ export function LiveAlerts({ className }: { className?: string }) {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Earthquakes */}
         <Card className="shadow-lg border-0 overflow-hidden">
-          <div className="bg-linear-to-r from-orange-600 to-orange-500 p-4">
+          <div className="bg-linear-to-r from-orange-400 to-orange-300 p-4">
             <CardTitle className="flex items-center gap-3 text-lg text-white font-bold">
               <div className="p-2 bg-white/20 rounded-lg backdrop-blur-sm">
                 <AlertTriangle className="w-6 h-6 text-white" />
@@ -632,7 +632,7 @@ export function LiveAlerts({ className }: { className?: string }) {
 
         {/* Floods */}
         <Card className="shadow-lg border-0 overflow-hidden">
-          <div className="bg-linear-to-r from-blue-600 to-blue-500 p-4">
+          <div className="bg-linear-to-r from-blue-400 to-blue-300 p-4">
             <CardTitle className="flex items-center gap-3 text-lg text-white font-bold">
               <div className="p-2 bg-white/20 rounded-lg backdrop-blur-sm">
                 <Droplets className="w-6 h-6 text-white" />

@@ -806,7 +806,7 @@ export function Navigation() {
                   </Button>
                   
                   <Button variant="ghost" size="sm" asChild>
-                    <Link href="/chat">
+                    <Link href="/chat" onClick={() => setMobileMenuOpen(false)}>
                       <MessageCircle className="w-4 h-4 mr-1" />
                       <span className="text-xs">{t('nav.aiChat')}</span>
                     </Link>
@@ -816,13 +816,13 @@ export function Navigation() {
                   {!isAuthenticated && (
                     <>
                       <Button variant="ghost" size="sm" asChild>
-                        <Link href="/login">
+                        <Link href="/login" onClick={() => setMobileMenuOpen(false)}>
                           <LogIn className="w-4 h-4 mr-1" />
                           <span className="text-xs">{t('nav.login')}</span>
                         </Link>
                       </Button>
                       <Button size="sm" asChild>
-                        <Link href="/register">
+                        <Link href="/register" onClick={() => setMobileMenuOpen(false)}>
                           <UserPlus className="w-4 h-4 mr-1" />
                           <span className="text-xs">{t('nav.register')}</span>
                         </Link>

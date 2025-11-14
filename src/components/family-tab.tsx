@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Users, Heart, Plus, MessageCircle, MapPin, XCircle, Search, CheckCircle, AlertTriangle, HelpCircle, Clock, Loader2 } from 'lucide-react'
 import { TabsContent } from '@/components/ui/tabs'
 import { fetchFamilyMembers, sendMessage, sendFamilyRequest, findUsers, removeFamilyMemberById, sendSafetyCheck, getSentFamilyRequests, cancelFamilyRequest, fetchLastSeenForUsers } from '@/services/family'
@@ -260,20 +260,18 @@ export default function FamilyTab(props: Props) {
                   </DialogTrigger>
                 <DialogContent showCloseButton={false} className="max-w-lg md:max-w-2xl w-full p-[30px]">
                   <div className="rounded-lg overflow-hidden shadow-lg bg-white">
-                    <div className="relative bg-linear-to-r from-indigo-600 to-sky-500 p-4 text-white">
+                    <div className="relative bg-linear-to-r from-blue-100 via-blue-50 to-gray-100 rounded-t-2xl shadow p-6 border border-blue-200">
                       <div className="flex items-center gap-3">
-                        <Avatar className="w-12 h-12">
-                          <AvatarFallback className="bg-amber-500">
-                            <Users className="w-6 h-6 text-white" />
-                          </AvatarFallback>
-                        </Avatar>
+                        <div className="shrink-0 w-12 h-12 rounded-full bg-blue-200/60 flex items-center justify-center shadow-md border-2 border-white">
+                          <Users className="w-6 h-6 text-blue-700" />
+                        </div>
                         <DialogHeader className="p-0">
-                          <DialogTitle className="text-lg font-semibold">{t('family.addMember')}</DialogTitle>
-                          <p className="text-sm opacity-90">Search for a registered user to send a family request</p>
+                          <DialogTitle className="text-lg font-semibold text-blue-900">{t('family.addMember')}</DialogTitle>
+                          <p className="text-sm text-blue-800/90">Search for a registered user to send a family request</p>
                         </DialogHeader>
                       </div>
-                      <DialogClose className="absolute right-3 top-3 p-1.5 rounded-full hover:bg-white/20 focus:outline-none">
-                        <XCircle className="w-5 h-5 text-white" />
+                      <DialogClose className="absolute right-3 top-3 p-1.5 rounded-full hover:bg-blue-200/40 focus:outline-none">
+                        <XCircle className="w-5 h-5 text-blue-700" />
                       </DialogClose>
                     </div>
                     <div className="p-4 space-y-4">
@@ -330,6 +328,7 @@ export default function FamilyTab(props: Props) {
                             <div key={r.id} className={`flex flex-col md:flex-row items-center justify-between p-3 rounded-lg border ${selectedFound?.id === r.id ? 'ring-2 ring-indigo-300 bg-indigo-50' : 'bg-white hover:shadow-sm'}`}>
                               <div className="flex items-center gap-3 w-full">
                                 <Avatar className="w-10 h-10">
+                                  <AvatarImage src={r.image} alt={r.name || 'User'} />
                                   <AvatarFallback>{(r.name || 'U').charAt(0)}</AvatarFallback>
                                 </Avatar>
                                 <div>
@@ -352,6 +351,7 @@ export default function FamilyTab(props: Props) {
                           <div className="flex flex-col md:flex-row items-start md:items-center justify-between w-full">
                             <div className="flex items-center gap-3 w-full">
                               <Avatar className="w-12 h-12">
+                                <AvatarImage src={selectedFound.image} alt={selectedFound.name || 'User'} />
                                 <AvatarFallback>{(selectedFound.name || 'U').charAt(0)}</AvatarFallback>
                               </Avatar>
                               <div>
@@ -407,9 +407,9 @@ export default function FamilyTab(props: Props) {
                               placeholder="e.g., Mother, Father, Brother, Sister"
                               required
                             />
-                            <div className="flex gap-2">
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                               {['Mother','Father','Brother','Sister','Wife','Husband','Son','Daughter'].map((rel) => (
-                                <Button key={rel} size="sm" className="w-full sm:w-auto" variant={memberRelation === rel ? 'secondary' : 'ghost'} onClick={() => setMemberRelation(rel)}>
+                                <Button key={rel} size="sm" className="w-full" variant={memberRelation === rel ? 'secondary' : 'ghost'} onClick={() => setMemberRelation(rel)}>
                                   {rel}
                                 </Button>
                               ))}
@@ -427,43 +427,45 @@ export default function FamilyTab(props: Props) {
           <CardContent>
             <div className="space-y-4">
               {mergedMembers.map((member) => (
-                <div key={member.id} className="flex flex-col md:flex-row items-start md:items-center justify-between p-4 border rounded-lg gap-4 md:gap-6">
+                <div key={member.id} className="flex flex-col md:flex-row items-start md:items-center justify-between p-5 bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow duration-200 gap-4 md:gap-6">
                   <div className="flex items-start gap-4 w-full md:w-auto min-w-0">
-                    <div className="w-12 h-12 md:w-10 md:h-10 bg-blue-100 rounded-full flex items-center justify-center shrink-0">
-                      <Users className="w-5 h-5 text-blue-600" />
-                    </div>
+                    <Avatar className="w-14 h-14 md:w-12 md:h-12 shrink-0 ring-2 ring-slate-100">
+                      <AvatarImage src={member.member?.image} alt={member.name || 'User'} />
+                      <AvatarFallback className="bg-linear-to-br from-slate-100 to-slate-200 text-slate-700 font-medium">{(member.name || 'U').charAt(0)}</AvatarFallback>
+                    </Avatar>
                     <div className="min-w-0 w-full">
                       <div className="flex items-center gap-2">
-                        <h3 className="font-medium">{member.name}</h3>
+                        <h3 className="font-semibold text-slate-800">{member.name}</h3>
                         {member.requestStatus === 'pending' && (
-                          <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
+                          <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
                             <Clock className="w-3 h-3 mr-1" />
                             Pending
                           </Badge>
                         )}
                       </div>
-                      <p className="text-sm text-gray-600 wrap-break-word">{member.phone}</p>
-                      <p className="text-xs text-gray-500 wrap-break-word">ID: {member.uniqueId}</p>
+                      <p className="text-sm text-slate-600 wrap-break-word mt-0.5">{member.phone}</p>
                       {member.relation && (
-                        <p className="text-xs text-blue-600 mt-1 wrap-break-word">Relation: {member.relation}</p>
+                        <p className="text-xs text-teal-600 mt-1 font-medium wrap-break-word">{member.relation}</p>
                       )}
-                      {/* Last seen info */}
-                      {(lastSeenMap[member.id]?.last_seen_at) && (
-                        <p className="text-xs text-gray-600 mt-1 wrap-break-word">
-                          <span className="font-medium">Last seen:</span> {new Date(lastSeenMap[member.id].last_seen_at).toLocaleString()}
+                      {/* Last seen info - only show for linked members, not pending requests */}
+                      {member.requestStatus !== 'pending' && (lastSeenMap[member.id]?.last_seen_at) && (
+                        <p className="text-xs text-slate-500 mt-2 wrap-break-word">
+                          <span className="font-semibold text-slate-600">Last seen:</span> {new Date(lastSeenMap[member.id].last_seen_at).toLocaleString()}
                         </p>
                       )}
-                      {(lastSeenMap[member.id]?.address || (lastSeenMap[member.id]?.lat && lastSeenMap[member.id]?.lng)) && (
-                        <div className="text-xs text-gray-600 flex flex-col sm:flex-row sm:items-center gap-1 mt-1">
-                          <div className="flex items-start gap-1 min-w-0">
-                            <MapPin className="w-3 h-3 shrink-0 mt-0.5" />
-                            <span className="wrap-break-word whitespace-normal leading-snug min-w-0">
+                      {member.requestStatus !== 'pending' && (lastSeenMap[member.id]?.address || (lastSeenMap[member.id]?.lat && lastSeenMap[member.id]?.lng)) && (
+                        <div className="text-xs text-slate-500 flex flex-col sm:flex-row sm:items-center gap-2 mt-2 bg-slate-50 p-2 rounded-lg">
+                          <div className="flex items-start gap-1.5 min-w-0 flex-1">
+                            <MapPin className="w-3.5 h-3.5 shrink-0 mt-0.5 text-slate-400" />
+                            <span className="wrap-break-word whitespace-normal leading-snug min-w-0 text-slate-600">
                               {lastSeenMap[member.id]?.address || `${Number(lastSeenMap[member.id]?.lat).toFixed(4)}, ${Number(lastSeenMap[member.id]?.lng).toFixed(4)}`}
                             </span>
                           </div>
                           {lastSeenMap[member.id]?.lat && lastSeenMap[member.id]?.lng && (
-                            <button
-                              className="sm:ml-2 underline text-indigo-600 hover:text-indigo-700 shrink-0 cursor-pointer"
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 px-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 hover:text-emerald-800 shrink-0"
                               onClick={() => {
                                 setSelectedLocation({
                                   name: member.name || 'Unknown',
@@ -474,8 +476,8 @@ export default function FamilyTab(props: Props) {
                                 setMapModalOpen(true)
                               }}
                             >
-                              View on Map
-                            </button>
+                              <MapPin className="w-3 h-3" />
+                            </Button>
                           )}
                         </div>
                       )}
@@ -518,7 +520,9 @@ export default function FamilyTab(props: Props) {
                                   status: l.safety_status ?? null,
                                   safety_check_started_at: l.safety_check_started_at,
                                   safety_check_expires_at: l.safety_check_expires_at,
-                                  lastSeen: new Date()
+                                  lastSeen: new Date(),
+                                  member: l.member,
+                                  relation: l.relation,
                                 }))
                                 const seen3 = new Set<string>()
                                 const deduped3 = mapped.filter((m) => {
@@ -613,9 +617,9 @@ function NotificationsBridge({ userId, onResponse }: { userId: string, onRespons
 // Colored status badge that replaces the button during an active check window
 function StatusBadge({ status }: { status: 'safe' | 'unknown' | 'danger' | string }) {
   const map: Record<string, { icon: any, classes: string, label: string }> = {
-    safe: { icon: CheckCircle, classes: 'bg-green-100 text-green-700 border border-green-200', label: 'Safe' },
-    danger: { icon: AlertTriangle, classes: 'bg-red-100 text-red-700 border border-red-200', label: 'Danger' },
-    unknown: { icon: HelpCircle, classes: 'bg-gray-100 text-gray-700 border border-gray-200', label: 'Unknown' },
+    safe: { icon: CheckCircle, classes: 'bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-sm', label: 'Safe' },
+    danger: { icon: AlertTriangle, classes: 'bg-rose-50 text-rose-700 border border-rose-200 shadow-sm', label: 'Danger' },
+    unknown: { icon: HelpCircle, classes: 'bg-slate-50 text-slate-600 border border-slate-200 shadow-sm', label: 'Unknown' },
   }
   const def = map[status] || map['unknown']
   const Icon = def.icon
@@ -657,7 +661,7 @@ function Countdown({ expiresAt }: { expiresAt?: string | null }) {
   const ss = String(totalSec % 60).padStart(2, '0')
 
   return (
-    <span className="inline-flex items-center gap-1 text-xs text-gray-500">
+    <span className="inline-flex items-center gap-1 text-xs text-slate-500 bg-slate-50 px-2 py-1 rounded-md">
       <Clock className="w-3 h-3" />
       {mm}:{ss}
     </span>
@@ -679,7 +683,7 @@ function renderSafetyControl(member: any, t: any, sendFn: (id: string)=>Promise<
       <Button
         size="sm"
         variant="outline"
-        className="w-full sm:w-auto"
+        className="w-full sm:w-auto shadow-sm hover:shadow border-slate-200 bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900"
         onClick={() => sendFn(member.id)}
         disabled={active}
       >

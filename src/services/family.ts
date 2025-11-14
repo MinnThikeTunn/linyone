@@ -38,7 +38,7 @@ export async function fetchFamilyMembers(userId: string) {
 
     const { data: users, error: uErr } = await supabase
       .from('users')
-      .select('id,name,phone')
+      .select('id,name,phone,image')
       .in('id', memberIds)
 
     if (uErr) {
@@ -470,16 +470,12 @@ export async function approveFamilyRequest(requestId: string) {
       return { success: false, error: link1Err || link2Err }
     }
 
-    // Update request status to approved (fire-and-forget, non-critical)
-    // Family links are already created above, so this is just for record-keeping
-    // We intentionally don't check the result to avoid logging false errors
-    // The update might fail if request was already processed/deleted, which is acceptable
-    // Since this is non-critical, we just attempt the update and continue
-    supabase
+    // Delete the request entirely (like reject does) to prevent race conditions
+    // This ensures the request won't show up in pending requests list
+    await supabase
       .from('family_requests')
-      .update({ status: 'approved' })
+      .delete()
       .eq('id', requestId)
-      // Intentionally don't await or check result - no error logging
 
     // Notify the original sender that their request was accepted
     try {
@@ -631,7 +627,7 @@ export async function findUsers(identifier: string) {
   try {
     if (!identifier) return []
     // Try exact phone
-    const phoneRes = await supabase.from('users').select('id,name,email,phone').eq('phone', identifier).limit(10)
+    const phoneRes = await supabase.from('users').select('id,name,email,phone,image').eq('phone', identifier).limit(10)
     if (phoneRes.error) {
       // log and continue
       console.warn('findUsers phone query error', phoneRes.error)
@@ -639,14 +635,14 @@ export async function findUsers(identifier: string) {
     if (phoneRes.data && phoneRes.data.length) return phoneRes.data
 
     // Try exact email
-    const emailRes = await supabase.from('users').select('id,name,email,phone').eq('email', identifier).limit(10)
+    const emailRes = await supabase.from('users').select('id,name,email,phone,image').eq('email', identifier).limit(10)
     if (emailRes.error) {
       console.warn('findUsers email query error', emailRes.error)
     }
     if (emailRes.data && emailRes.data.length) return emailRes.data
 
     // Fallback: name search (ILIKE contains)
-    const nameRes = await supabase.from('users').select('id,name,email,phone').ilike('name', `%${identifier}%`).limit(10)
+    const nameRes = await supabase.from('users').select('id,name,email,phone,image').ilike('name', `%${identifier}%`).limit(10)
     if (nameRes.error) {
       console.warn('findUsers name query error', nameRes.error)
     }
