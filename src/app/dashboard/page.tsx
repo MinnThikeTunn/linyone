@@ -245,13 +245,22 @@ export default function DashboardPage() {
     <div className="min-h-screen bg-gray-50">
   <div className="max-w-360 mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            {t("dashboard.welcome")}, {user?.name}!
-          </h1>
-          <p className="text-gray-600">
-            Manage your family safety and learning progress
-          </p>
+
+        {/* Calm Welcome Card */}
+        <div className="mt-8 mb-8">
+          <div className="bg-linear-to-r from-blue-100 via-blue-50 to-gray-100 rounded-2xl shadow p-6 flex flex-col sm:flex-row items-center gap-6 border border-blue-200">
+            <div className="shrink-0 w-20 h-20 rounded-full bg-blue-200/60 flex items-center justify-center shadow-md border-4 border-white">
+              <Users className="w-12 h-12 text-blue-700 drop-shadow" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h1 className="text-3xl sm:text-4xl font-extrabold text-blue-900 mb-1 drop-shadow-sm">
+                {t("dashboard.welcome")}, {user?.name}!
+              </h1>
+              <p className="text-lg text-blue-800/90 font-medium">
+                Manage your <span className="font-semibold text-blue-600">family safety</span> and <span className="font-semibold text-green-700">learning progress</span>
+              </p>
+            </div>
+          </div>
         </div>
 
     {/* Quick Stats */}

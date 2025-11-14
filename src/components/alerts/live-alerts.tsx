@@ -452,109 +452,178 @@ export function LiveAlerts({ className }: { className?: string }) {
 
   return (
     <div className={className}>
-      <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
-        {/* Region filter */}
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-600">Region:</span>
-          <div className="inline-flex rounded-md border overflow-hidden">
-            <button
-              className={`px-3 py-1.5 text-sm flex items-center gap-1 ${region==='global' ? 'bg-black text-white' : 'bg-white text-gray-700'}`}
-              onClick={() => setRegion('global')}
-              title="Show global alerts"
-            >
-              <Globe className="w-4 h-4" /> Global
-            </button>
-            <button
-              className={`px-3 py-1.5 text-sm flex items-center gap-1 border-l ${region==='myanmar' ? 'bg-black text-white' : 'bg-white text-gray-700'}`}
-              onClick={() => setRegion('myanmar')}
-              title="Show Myanmar alerts"
-            >
-              <MapPin className="w-4 h-4" /> Myanmar
-            </button>
+      {/* Header with Region Filter and Status */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-6">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <div className={`w-2 h-2 rounded-full ${status === 'live' ? 'bg-green-500 animate-pulse' : status === 'error' ? 'bg-red-500' : 'bg-gray-400'}`} />
+              <span className="text-sm font-medium text-gray-700">
+                {status === 'live' ? 'Live Updates' : status === 'error' ? 'Connection Error' : 'Connecting...'}
+              </span>
+            </div>
+            <div className="h-4 w-px bg-gray-300" />
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-gray-600">Region:</span>
+              <div className="inline-flex rounded-lg border border-gray-300 overflow-hidden shadow-sm">
+                <button
+                  className={`px-4 py-1.5 text-sm font-medium flex items-center gap-2 transition-colors ${region==='global' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+                  onClick={() => setRegion('global')}
+                  title="Show global alerts"
+                >
+                  <Globe className="w-4 h-4" /> Global
+                </button>
+                <button
+                  className={`px-4 py-1.5 text-sm font-medium flex items-center gap-2 border-l border-gray-300 transition-colors ${region==='myanmar' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+                  onClick={() => setRegion('myanmar')}
+                  title="Show Myanmar alerts"
+                >
+                  <MapPin className="w-4 h-4" /> Myanmar
+                </button>
+              </div>
+            </div>
           </div>
-        </div>
-        <div className="flex items-center justify-end">
-          <Button size="sm" variant="outline" onClick={sendTestEqAlert} title="Broadcast a test earthquake alert">
-            Send Test EQ Alert
+          <Button size="sm" variant="outline" onClick={sendTestEqAlert} title="Broadcast a test earthquake alert" className="shadow-sm">
+            <AlertTriangle className="w-4 h-4 mr-2" />
+            Send Test Alert
           </Button>
         </div>
       </div>
-      {/* Risk summary cards */}
+
+      {/* Risk Summary Dashboard */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-        <Card className="border-t-4 border-t-red-600">
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-base font-semibold"><AlertTriangle className="w-5 h-5 text-red-600" /> High</CardTitle>
-            <CardDescription>Combined EQ + Flood (last 10 each)</CardDescription>
+        <Card className="border-l-4 border-l-red-600 shadow-md hover:shadow-lg transition-shadow bg-linear-to-br from-red-50 to-white">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2 text-base font-bold text-red-900">
+                <div className="p-2 bg-red-100 rounded-lg">
+                  <AlertTriangle className="w-5 h-5 text-red-600" />
+                </div>
+                High Risk
+              </CardTitle>
+              <div className="text-3xl font-black text-red-700">{highCount}</div>
+            </div>
+            <CardDescription className="text-xs mt-1">Critical alerts requiring immediate attention</CardDescription>
           </CardHeader>
-          <CardContent className="pt-0">
-            <div className="text-3xl font-bold text-red-700">{highCount}</div>
-          </CardContent>
         </Card>
-        <Card className="border-t-4 border-t-yellow-500">
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-base font-semibold"><AlertTriangle className="w-5 h-5 text-yellow-500" /> Medium</CardTitle>
-            <CardDescription>Combined EQ + Flood (last 10 each)</CardDescription>
+        
+        <Card className="border-l-4 border-l-yellow-600 shadow-md hover:shadow-lg transition-shadow bg-linear-to-br from-yellow-50 to-white">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2 text-base font-bold text-yellow-900">
+                <div className="p-2 bg-yellow-100 rounded-lg">
+                  <AlertTriangle className="w-5 h-5 text-yellow-600" />
+                </div>
+                Medium Risk
+              </CardTitle>
+              <div className="text-3xl font-black text-yellow-700">{mediumCount}</div>
+            </div>
+            <CardDescription className="text-xs mt-1">Moderate alerts to monitor closely</CardDescription>
           </CardHeader>
-            <CardContent className="pt-0">
-            <div className="text-3xl font-bold text-yellow-600">{mediumCount}</div>
-          </CardContent>
         </Card>
-        <Card className="border-t-4 border-t-blue-600">
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-base font-semibold"><AlertTriangle className="w-5 h-5 text-blue-600" /> Low</CardTitle>
-            <CardDescription>Combined EQ + Flood (last 10 each)</CardDescription>
+        
+        <Card className="border-l-4 border-l-blue-600 shadow-md hover:shadow-lg transition-shadow bg-linear-to-br from-blue-50 to-white">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2 text-base font-bold text-blue-900">
+                <div className="p-2 bg-blue-100 rounded-lg">
+                  <AlertTriangle className="w-5 h-5 text-blue-600" />
+                </div>
+                Low Risk
+              </CardTitle>
+              <div className="text-3xl font-black text-blue-700">{lowCount}</div>
+            </div>
+            <CardDescription className="text-xs mt-1">Minor events for awareness</CardDescription>
           </CardHeader>
-          <CardContent className="pt-0">
-            <div className="text-3xl font-bold text-blue-700">{lowCount}</div>
-          </CardContent>
         </Card>
       </div>
 
-      {/* Last 10 earthquakes list and floods in responsive grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      {/* Alert Lists: Professional Emergency Display */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Earthquakes */}
-        <Card className="border-t-4 border-t-orange-500">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <AlertTriangle className="w-5 h-5 text-orange-500" /> Last 10 Earthquakes
+        <Card className="shadow-lg border-0 overflow-hidden">
+          <div className="bg-linear-to-r from-orange-600 to-orange-500 p-4">
+            <CardTitle className="flex items-center gap-3 text-lg text-white font-bold">
+              <div className="p-2 bg-white/20 rounded-lg backdrop-blur-sm">
+                <AlertTriangle className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <div>Earthquake Alerts</div>
+                <div className="text-xs font-normal text-orange-100 mt-0.5">
+                  {lastTen.length === 0 ? 'No recent activity' : `${lastTen.length} recent event${lastTen.length !== 1 ? 's' : ''}`}
+                </div>
+              </div>
             </CardTitle>
-            <CardDescription>{lastTen.length === 0 ? 'No recent earthquakes' : `Showing ${lastTen.length} most recent`}</CardDescription>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <div className="h-112 overflow-y-auto pr-1 space-y-3">
+          </div>
+          <CardContent className="p-4">
+            <div className="h-112 overflow-y-auto pr-2 space-y-3">
               {lastTen.length === 0 ? (
-                <div className="flex h-full items-center justify-center text-gray-500 text-sm">No earthquakes detected</div>
+                <div className="flex h-full items-center justify-center text-gray-400 text-sm py-8">
+                  <div className="text-center">
+                    <AlertTriangle className="w-12 h-12 mx-auto mb-2 opacity-20" />
+                    <p>No earthquakes detected</p>
+                  </div>
+                </div>
               ) : (
                 lastTen.map(ev => (
-                  <Card key={ev.id} className="border-l-4 border-l-orange-500">
-                    <CardContent className="p-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-2">
-                            <h4 className="font-semibold text-sm truncate" title={ev.title}>{ev.title}</h4>
-                            <Badge className={`${getSeverityBadge(ev.severity)} text-xs capitalize`}>{ev.severity}</Badge>
+                  <div key={ev.id} className={`group bg-white border-l-4 rounded-lg shadow-sm hover:shadow-md transition-all p-4 ${
+                    ev.severity === 'high' ? 'border-l-red-600 hover:border-l-red-700' : 
+                    ev.severity === 'medium' ? 'border-l-yellow-500 hover:border-l-yellow-600' : 
+                    'border-l-blue-500 hover:border-l-blue-600'
+                  }`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start gap-2 mb-2">
+                          <div className={`mt-0.5 p-1.5 rounded-md ${
+                            ev.severity === 'high' ? 'bg-red-100' : 
+                            ev.severity === 'medium' ? 'bg-yellow-100' : 
+                            'bg-blue-100'
+                          }`}>
+                            <AlertTriangle className={`w-4 h-4 ${
+                              ev.severity === 'high' ? 'text-red-600' : 
+                              ev.severity === 'medium' ? 'text-yellow-600' : 
+                              'text-blue-600'
+                            }`} />
                           </div>
-                          <p className="text-xs text-gray-600 mb-2 line-clamp-2">{ev.description}</p>
-                          <div className="flex items-center gap-3 text-xs text-gray-500 flex-wrap">
-                            <div className="flex items-center gap-1"><Clock className="w-3 h-3" /><span>{formatTimeAgo(ev.time)}</span></div>
-                            {ev.magnitude != null && <div className="flex items-center gap-1"><span>M{(ev.magnitude as number).toFixed(1)}</span></div>}
-                            {ev.location && <div className="flex items-center gap-1"><MapPin className="w-3 h-3" /><span className="truncate max-w-[140px]" title={ev.location}>{ev.location}</span></div>}
+                          <div className="flex-1 min-w-0">
+                            <h4 className="font-bold text-sm text-gray-900 mb-1" title={ev.title}>{ev.title}</h4>
+                            <Badge className={`${getSeverityBadge(ev.severity)} text-xs font-semibold uppercase tracking-wide`}>{ev.severity}</Badge>
                           </div>
                         </div>
-                        {(ev.coordinates && ev.coordinates.length >= 2) && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="shrink-0"
-                            onClick={() => setSelectedForMap(ev)}
-                            title="View location map"
-                          >
-                            <Navigation className="w-3 h-3" />
-                          </Button>
+                        {ev.description && (
+                          <p className="text-xs text-gray-600 mb-3 leading-relaxed">{ev.description}</p>
                         )}
+                        <div className="flex items-center gap-4 text-xs text-gray-500">
+                          <div className="flex items-center gap-1.5 font-medium">
+                            <Clock className="w-3.5 h-3.5" />
+                            <span>{formatTimeAgo(ev.time)}</span>
+                          </div>
+                          {ev.magnitude != null && (
+                            <div className="flex items-center gap-1.5 font-bold text-orange-700">
+                              <span>M{(ev.magnitude as number).toFixed(1)}</span>
+                            </div>
+                          )}
+                          {ev.location && (
+                            <div className="flex items-center gap-1.5">
+                              <MapPin className="w-3.5 h-3.5" />
+                              <span className="truncate max-w-[120px]" title={ev.location}>{ev.location}</span>
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </CardContent>
-                  </Card>
+                      {(ev.coordinates && ev.coordinates.length >= 2) && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="shrink-0 shadow-sm hover:shadow transition-shadow"
+                          onClick={() => setSelectedForMap(ev)}
+                          title="View location map"
+                        >
+                          <Navigation className="w-4 h-4" />
+                        </Button>
+                      )}
+                    </div>
+                  </div>
                 ))
               )}
             </div>
@@ -562,48 +631,89 @@ export function LiveAlerts({ className }: { className?: string }) {
         </Card>
 
         {/* Floods */}
-        <Card className="border-t-4 border-t-blue-600">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <Droplets className="w-5 h-5 text-blue-600" /> Last 10 Flood Alerts
+        <Card className="shadow-lg border-0 overflow-hidden">
+          <div className="bg-linear-to-r from-blue-600 to-blue-500 p-4">
+            <CardTitle className="flex items-center gap-3 text-lg text-white font-bold">
+              <div className="p-2 bg-white/20 rounded-lg backdrop-blur-sm">
+                <Droplets className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <div>Flood Alerts</div>
+                <div className="text-xs font-normal text-blue-100 mt-0.5">
+                  {floodsLastTen.length === 0 ? 'No recent activity' : `${floodsLastTen.length} recent event${floodsLastTen.length !== 1 ? 's' : ''}`}
+                </div>
+              </div>
             </CardTitle>
-            <CardDescription>{floodsLastTen.length === 0 ? 'No flood alerts detected' : `Showing ${floodsLastTen.length} most recent`}</CardDescription>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <div className="h-112 overflow-y-auto pr-1 space-y-3">
+          </div>
+          <CardContent className="p-4">
+            <div className="h-112 overflow-y-auto pr-2 space-y-3">
               {floodsLastTen.length === 0 ? (
-                <div className="flex h-full items-center justify-center text-gray-500 text-sm">No floods detected</div>
+                <div className="flex h-full items-center justify-center text-gray-400 text-sm py-8">
+                  <div className="text-center">
+                    <Droplets className="w-12 h-12 mx-auto mb-2 opacity-20" />
+                    <p>No flood alerts detected</p>
+                  </div>
+                </div>
               ) : (
                 floodsLastTen.map(ev => (
-                  <Card key={ev.id} className="border-l-4 border-l-blue-600">
-                    <CardContent className="p-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-2">
-                            <h4 className="font-semibold text-sm truncate" title={ev.title}>{ev.title}</h4>
-                            <Badge className={`${getSeverityBadge(ev.severity)} text-xs capitalize`}>{ev.severity}</Badge>
+                  <div key={ev.id} className={`group bg-white border-l-4 rounded-lg shadow-sm hover:shadow-md transition-all p-4 ${
+                    ev.severity === 'high' ? 'border-l-red-600 hover:border-l-red-700' : 
+                    ev.severity === 'medium' ? 'border-l-yellow-500 hover:border-l-yellow-600' : 
+                    'border-l-blue-500 hover:border-l-blue-600'
+                  }`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start gap-2 mb-2">
+                          <div className={`mt-0.5 p-1.5 rounded-md ${
+                            ev.severity === 'high' ? 'bg-red-100' : 
+                            ev.severity === 'medium' ? 'bg-yellow-100' : 
+                            'bg-blue-100'
+                          }`}>
+                            <Droplets className={`w-4 h-4 ${
+                              ev.severity === 'high' ? 'text-red-600' : 
+                              ev.severity === 'medium' ? 'text-yellow-600' : 
+                              'text-blue-600'
+                            }`} />
                           </div>
-                          <p className="text-xs text-gray-600 mb-2 line-clamp-2">{ev.description}</p>
-                          <div className="flex items-center gap-3 text-xs text-gray-500 flex-wrap">
-                            <div className="flex items-center gap-1"><Clock className="w-3 h-3" /><span>{formatTimeAgo(ev.time)}</span></div>
-                            {ev.magnitude != null && <div className="flex items-center gap-1"><span>Q{Math.round(ev.magnitude)} m³/s</span></div>}
-                            {ev.location && <div className="flex items-center gap-1"><MapPin className="w-3 h-3" /><span className="truncate max-w-[140px]" title={ev.location}>{ev.location}</span></div>}
+                          <div className="flex-1 min-w-0">
+                            <h4 className="font-bold text-sm text-gray-900 mb-1" title={ev.title}>{ev.title}</h4>
+                            <Badge className={`${getSeverityBadge(ev.severity)} text-xs font-semibold uppercase tracking-wide`}>{ev.severity}</Badge>
                           </div>
                         </div>
-                        {(ev.coordinates && ev.coordinates.length >= 2) && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="shrink-0"
-                            onClick={() => setSelectedForMap(ev)}
-                            title="View location map"
-                          >
-                            <Navigation className="w-3 h-3" />
-                          </Button>
+                        {ev.description && (
+                          <p className="text-xs text-gray-600 mb-3 leading-relaxed">{ev.description}</p>
                         )}
+                        <div className="flex items-center gap-4 text-xs text-gray-500">
+                          <div className="flex items-center gap-1.5 font-medium">
+                            <Clock className="w-3.5 h-3.5" />
+                            <span>{formatTimeAgo(ev.time)}</span>
+                          </div>
+                          {ev.magnitude != null && (
+                            <div className="flex items-center gap-1.5 font-bold text-blue-700">
+                              <span>Q{Math.round(ev.magnitude)} m³/s</span>
+                            </div>
+                          )}
+                          {ev.location && (
+                            <div className="flex items-center gap-1.5">
+                              <MapPin className="w-3.5 h-3.5" />
+                              <span className="truncate max-w-[120px]" title={ev.location}>{ev.location}</span>
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </CardContent>
-                  </Card>
+                      {(ev.coordinates && ev.coordinates.length >= 2) && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="shrink-0 shadow-sm hover:shadow transition-shadow"
+                          onClick={() => setSelectedForMap(ev)}
+                          title="View location map"
+                        >
+                          <Navigation className="w-4 h-4" />
+                        </Button>
+                      )}
+                    </div>
+                  </div>
                 ))
               )}
             </div>

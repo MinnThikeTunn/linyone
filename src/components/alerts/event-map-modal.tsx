@@ -44,7 +44,7 @@ export function EventMapModal({ open, onOpenChange, title, longitude, latitude, 
         container: mapContainerRef.current,
         style: 'mapbox://styles/mapbox/streets-v12',
         center: [lon, lat],
-        zoom: 5,
+        zoom: 14,
       })
       setTimeout(() => {
         mapRef.current?.resize()

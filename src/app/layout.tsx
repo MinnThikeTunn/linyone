@@ -9,6 +9,7 @@ import { AlertToToastBridge } from "@/components/alert-to-toast-bridge";
 import { NotificationToasts } from "@/components/notification-toasts";
 import { LiveAlerts } from "@/components/alerts/live-alerts";
 import DisasterToasts from "@/components/alerts/disaster-toasts";
+import LastSeenUpdater from "@/components/last-seen-updater";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -61,6 +62,8 @@ export default function RootLayout({
                 <LiveAlerts className="hidden lg:block" />
               </div> */}
               <main className="flex-1">
+                {/* Background task: update user's last seen location periodically */}
+                <LastSeenUpdater />
                 {children}
               </main>
             </div>

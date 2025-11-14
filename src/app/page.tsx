@@ -39,6 +39,7 @@ import {
   Clock,
   Eye,
   Lock,
+  Loader2,
 } from "lucide-react";
 import { useLanguage } from "@/hooks/use-language";
 import { useAuth } from "@/hooks/use-auth";
@@ -1336,7 +1337,7 @@ export default function HomePage() {
           <div className="lg:col-span-2">
             {/* Header */}
             <div className="max-w-7xl mx-auto pb-4">
-              <div className={`flex items-center gap-2 w-full ${isUserTracker ? "flex-wrap" : ""}`}>
+              <div className={`flex items-center gap-2 w-full `}>
                 <Button
                   variant="outline"
                   size={isUserTracker ? "sm" : "default"}
@@ -1470,7 +1471,7 @@ export default function HomePage() {
                                 <div>No items suggested.</div>
                               )}
                             </div>
-                            {isUserTracker && (
+                            {/* {isUserTracker && (
                               <div className="mt-2 flex gap-2">
                                 <Button size="sm" variant="outline" onClick={() => applySuggestedItemsToTracker(aiSuggestAdd)}>
                                   Apply Suggestions
@@ -1479,7 +1480,7 @@ export default function HomePage() {
                                   Dismiss
                                 </Button>
                               </div>
-                            )}
+                            )} */}
                           </div>
                         )}
                         {!aiLoadingAdd && aiErrorAdd && (
@@ -1656,7 +1657,7 @@ export default function HomePage() {
               </div>
             </div>
 
-            <Card className="h-[800px] py-0">
+            <Card className="h-full min-h-[800px] py-0">
               <CardContent className="p-0 h-full relative">
                 {/* Mapbox Map */}
                 <div
@@ -1699,16 +1700,32 @@ export default function HomePage() {
                         Click on the map to select a location for your pin
                       </p>
                     </div>
-                    <Button
-                      size="sm"
-                      onClick={() => {
-                        setIsSelectingLocation(false);
-                        setShowPinDialog(true);
-                      }}
-                      className="mt-2 w-full"
-                    >
-                      Done
-                    </Button>
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          setIsSelectingLocation(false);
+                          setShowPinDialog(true);
+                        }}
+                      >
+                        Done
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setNewPinLocation(null);
+                          if (tempMarker.current) {
+                            tempMarker.current.remove();
+                            tempMarker.current = null;
+                          }
+                          setIsSelectingLocation(false);
+                          setShowPinDialog(true);
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
                   </div>
                 )}
                   
@@ -1911,7 +1928,7 @@ export default function HomePage() {
               <div className="flex gap-2 justify-end">
                 <Button
                   size="sm"
-                  variant="secondary"
+                  variant="default"
                   onClick={() => showRouteToPin(selectedPin)}
                 >
                   <Navigation className="w-3 h-3 mr-1" /> Show Route
@@ -2029,7 +2046,7 @@ export default function HomePage() {
                         <div className="flex items-center gap-2">
                           <Button
                             size="sm"
-                            variant="secondary"
+                            variant="default"
                             onClick={(e) => {
                               e.stopPropagation();
                               showRouteToPin(pin);
@@ -2071,108 +2088,206 @@ export default function HomePage() {
               <DialogTitle>Confirm Pin Details</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
-              {/* Pin Details */}
-              <div className="space-y-2 border-b pb-4">
-                <div className="flex gap-2 justify-end">
+              {/* Action Buttons */}
+              <div className="flex gap-2 justify-end">
+                <Button
+                  size="sm"
+                  variant="default"
+                  onClick={() => pinToConfirm && showRouteToPin(pinToConfirm)}
+                  className="bg-indigo-600 hover:bg-indigo-700"
+                >
+                  <Navigation className="w-3 h-3 mr-1" /> Show Route
+                </Button>
+                {activeRoutePinId === pinToConfirm.id && (
                   <Button
                     size="sm"
-                    variant="secondary"
-                    onClick={() => pinToConfirm && showRouteToPin(pinToConfirm)}
+                    variant="outline"
+                    onClick={() => clearRoute()}
                   >
-                    <Navigation className="w-3 h-3 mr-1" /> Show Route
+                    Clear Route
                   </Button>
-                  {activeRoutePinId === pinToConfirm.id && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => clearRoute()}
-                    >
-                      Clear Route
-                    </Button>
-                  )}
+                )}
+              </div>
+
+              {/* Pin Details Card */}
+              <div className="bg-linear-to-br from-blue-50 via-white to-purple-50 rounded-xl p-5 shadow-sm border border-blue-100">
+                <div className="flex items-center gap-2 mb-4 pb-3 border-b border-blue-200">
+                  <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+                    <MapPin className="w-5 h-5 text-white" />
+                  </div>
+                  <h3 className="font-semibold text-gray-800">Report Details</h3>
                 </div>
-                <div>
-                  <Label className="text-sm font-medium text-gray-500">Phone</Label>
-                  <p className="text-sm">{pinToConfirm.phone}</p>
+
+                <div className="grid gap-4">
+                  {/* Phone */}
+                  <div className="flex items-start gap-3 p-3 bg-white rounded-lg border border-gray-200">
+                    <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center shrink-0">
+                      <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                      </svg>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-medium text-gray-500 mb-1">Contact Number</div>
+                      <div className="text-sm font-semibold text-gray-900">{pinToConfirm.phone}</div>
+                    </div>
+                  </div>
+
+                  {/* Status */}
+                  <div className="flex items-start gap-3 p-3 bg-white rounded-lg border border-gray-200">
+                    <div className="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center shrink-0">
+                      <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-medium text-gray-500 mb-1">Current Status</div>
+                      <Badge className={getStatusColor(pinToConfirm.status)}>
+                        {pinToConfirm.status}
+                      </Badge>
+                    </div>
+                  </div>
+
+                  {/* Description */}
+                  <div className="flex items-start gap-3 p-3 bg-white rounded-lg border border-gray-200">
+                    <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center shrink-0">
+                      <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h7" />
+                      </svg>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-medium text-gray-500 mb-1">Description</div>
+                      <div className="text-sm text-gray-700 leading-relaxed">{pinToConfirm.description}</div>
+                    </div>
+                  </div>
+
+                  {/* Reporter */}
+                  <div className="flex items-start gap-3 p-3 bg-white rounded-lg border border-gray-200">
+                    <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center shrink-0">
+                      <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                      </svg>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-medium text-gray-500 mb-1">Reported By</div>
+                      <div className="text-sm font-medium text-gray-900">{pinToConfirm.createdBy}</div>
+                    </div>
+                  </div>
+
+                  {/* Timestamp */}
+                  <div className="flex items-start gap-3 p-3 bg-white rounded-lg border border-gray-200">
+                    <div className="w-10 h-10 bg-indigo-100 rounded-full flex items-center justify-center shrink-0">
+                      <Clock className="w-5 h-5 text-indigo-600" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-medium text-gray-500 mb-1">Report Time</div>
+                      <div className="text-sm font-medium text-gray-900">{pinToConfirm.createdAt.toLocaleString()}</div>
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <Label className="text-sm font-medium text-gray-500">Status</Label>
-                  <Badge className={getStatusColor(pinToConfirm.status)}>
-                    {pinToConfirm.status}
-                  </Badge>
-                </div>
-                <div>
-                  <Label className="text-sm font-medium text-gray-500">Description</Label>
-                  <p className="text-sm">{pinToConfirm.description}</p>
-                </div>
-                <div>
-                  <Label className="text-sm font-medium text-gray-500">Reporter</Label>
-                  <p className="text-sm">{pinToConfirm.createdBy}</p>
-                </div>
-                <div>
-                  <Label className="text-sm font-medium text-gray-500">Timestamp</Label>
-                  <p className="text-sm">{pinToConfirm.createdAt.toLocaleString()}</p>
-                </div>
+
+                {/* Photo */}
                 {pinToConfirm.image && (
-                  <div className="pt-2">
-                    <Label className="text-sm font-medium text-gray-500">Photo</Label>
-                    <div className="w-full h-48 bg-gray-100 rounded-lg overflow-hidden mt-1">
+                  <div className="mt-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="w-6 h-6 bg-rose-100 rounded-md flex items-center justify-center">
+                        <svg className="w-4 h-4 text-rose-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                      </div>
+                      <span className="text-xs font-medium text-gray-500">Attached Photo</span>
+                    </div>
+                    <div className="w-full h-56 bg-gray-100 rounded-xl overflow-hidden border-2 border-gray-200 shadow-md">
                       <img
                         src={pinToConfirm.image}
                         alt="Reported photo"
-                        className="w-full h-full object-cover"
+                        className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
                       />
                     </div>
                   </div>
                 )}
+              </div>
 
-                {/* AI Suggestions for Confirm */}
-                <div className="space-y-2 border-b pb-4">
+              {/* AI Suggestions for Confirm */}
+              <div className="space-y-2 border-t pt-4">
                   {aiLoadingConfirm && (
-                    <div className="text-sm text-gray-500">Analyzing report…</div>
+                    <div className="flex items-center gap-2 text-sm text-gray-500 bg-gray-50 p-3 rounded-lg">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>AI analyzing report…</span>
+                    </div>
                   )}
                   {!aiLoadingConfirm && aiSuggestConfirm && (
-                    <div className="rounded-lg p-3 bg-gray-50 border">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="text-sm font-medium">AI Suggestions</div>
-                        <div
-                          className={`text-xs px-2 py-0.5 rounded ${
-                            aiSuggestConfirm.severity >= 0.8
-                              ? "bg-red-100 text-red-700"
-                              : aiSuggestConfirm.severity >= 0.5
-                              ? "bg-yellow-100 text-yellow-700"
-                              : "bg-green-100 text-green-700"
-                          }`}
-                        >
-                          Severity: {Math.round(aiSuggestConfirm.severity * 100)}%
+                    <div className="rounded-xl overflow-hidden shadow-sm border border-gray-200">
+                      {/* Header with gradient */}
+                      <div className={`p-4 ${
+                        aiSuggestConfirm.severity >= 0.8
+                          ? "bg-linear-to-r from-red-500 to-red-600"
+                          : aiSuggestConfirm.severity >= 0.5
+                          ? "bg-linear-to-r from-yellow-500 to-orange-500"
+                          : "bg-linear-to-r from-green-500 to-emerald-600"
+                      }`}>
+                        <div className="flex items-center justify-between text-white">
+                          <div className="flex items-center gap-2">
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                            </svg>
+                            <span className="font-semibold text-base">AI Suggestions</span>
+                          </div>
+                          <div className="px-3 py-1 bg-white/20 backdrop-blur-sm rounded-full text-sm font-medium">
+                            {Math.round(aiSuggestConfirm.severity * 100)}% Severity
+                          </div>
                         </div>
                       </div>
-                      <div className="text-xs text-gray-600 mb-2">
-                        Categories: {aiSuggestConfirm.categories.join(", ")}
-                      </div>
-                      <div className="text-xs">
+
+                      {/* Content */}
+                      <div className="p-4 bg-white space-y-3">
+                        {/* Categories */}
+                        <div className="flex flex-wrap gap-2">
+                          {aiSuggestConfirm.categories.map((cat, idx) => (
+                            <span key={idx} className="px-3 py-1 bg-blue-50 text-blue-700 rounded-full text-xs font-medium border border-blue-200">
+                              {cat}
+                            </span>
+                          ))}
+                        </div>
+
+                        {/* Suggested Items */}
                         {aiSuggestConfirm.items.length > 0 ? (
-                          <ul className="list-disc ml-5">
-                            {aiSuggestConfirm.items.map((it, idx) => (
-                              <li key={idx}>{it.name} × {it.qty}</li>
-                            ))}
-                          </ul>
+                          <div className="space-y-2">
+                            <div className="text-sm font-medium text-gray-700">Recommended Items:</div>
+                            <div className="grid gap-2">
+                              {aiSuggestConfirm.items.map((it, idx) => (
+                                <div key={idx} className="flex items-center justify-between p-2 bg-linear-to-r from-gray-50 to-gray-100 rounded-lg border border-gray-200">
+                                  <div className="flex items-center gap-2">
+                                    <div className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center">
+                                      <svg className="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                                      </svg>
+                                    </div>
+                                    <span className="text-sm font-medium text-gray-700">{it.name}</span>
+                                  </div>
+                                  <div className="flex items-center gap-1 bg-white px-3 py-1 rounded-md border border-gray-300">
+                                    <svg className="w-3 h-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                    <span className="text-sm font-semibold text-gray-800">{it.qty}</span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
                         ) : (
-                          <div>No items suggested.</div>
+                          <div className="text-center py-4 text-sm text-gray-500 bg-gray-50 rounded-lg border border-dashed border-gray-300">
+                            No specific items suggested
+                          </div>
                         )}
-                      </div>
-                      <div className="mt-2">
-                        <Button size="sm" variant="outline" onClick={() => applySuggestedItemsToConfirm(aiSuggestConfirm)}>
-                          Apply Suggestions
-                        </Button>
                       </div>
                     </div>
                   )}
                   {!aiLoadingConfirm && aiErrorConfirm && (
-                    <div className="text-sm text-gray-400">{aiErrorConfirm}</div>
+                    <div className="text-sm text-gray-400 bg-gray-50 p-3 rounded-lg border border-gray-200">
+                      {aiErrorConfirm}
+                    </div>
                   )}
                 </div>
-              </div>
 
               {/* Items from Database */}
               <div className="space-y-3">
