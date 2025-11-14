@@ -125,13 +125,7 @@ export function Navigation() {
             </Button>
 
             {/* AI Chat Assistant */}
-            <Button variant="ghost" size="sm" className="relative" asChild>
-              <Link href="/chat">
-                <MessageCircle className="w-4 h-4" />
-                <span className="ml-1 text-xs">{t('nav.aiChat')}</span>
-                <Badge variant="destructive" className="absolute -top-1 -right-1 w-2 h-2 p-0" />
-              </Link>
-            </Button>
+           
 
             {/* Show login/register when not authenticated, or show user menu when authenticated */}
             {isAuthenticated ? (

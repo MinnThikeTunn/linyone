@@ -6,57 +6,30 @@ import { LanguageProvider } from "@/hooks/use-language";
 import { AuthProvider } from "@/hooks/use-auth";
 import { Navigation } from "@/components/navigation";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
+// ✅ Only the unified widget (has the mode switch)
+import AIChatAssistant from "@/components/ai-chat";
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
+const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Lin Yone Tech - Earthquake Response Platform",
-  description: "Real-time earthquake alerts, coordination, and recovery tools for communities before, during, and after earthquakes.",
-  keywords: ["earthquake", "emergency response", "safety", "volunteer", "disaster relief", "Myanmar", "Burmese"],
-  authors: [{ name: "Lin Yone Tech Team" }],
-  icons: {
-    icon: "/favicon.ico",
-  },
-  openGraph: {
-    title: "Lin Yone Tech - Earthquake Response Platform",
-    description: "Real-time earthquake alerts, coordination, and recovery tools for communities",
-    url: "https://linyonetech.com",
-    siteName: "Lin Yone Tech",
-    type: "website",
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: "Lin Yone Tech - Earthquake Response Platform",
-    description: "Real-time earthquake alerts, coordination, and recovery tools for communities",
-  },
+  // ... your existing metadata ...
 };
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
-      >
+      <body className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}>
         <LanguageProvider>
           <AuthProvider>
             <div className="min-h-screen flex flex-col">
               <Navigation />
-              <main className="flex-1">
-                {children}
-              </main>
+              <main className="flex-1">{children}</main>
             </div>
             <Toaster />
+
+            {/* Single floating assistant with Assistant/Mental tabs */}
+            <AIChatAssistant />
           </AuthProvider>
         </LanguageProvider>
       </body>

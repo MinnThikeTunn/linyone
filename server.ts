@@ -3,6 +3,14 @@ import { setupSocket } from '@/lib/socket';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import next from 'next';
+import dotenv from 'dotenv';
+import { resolve } from 'path';
+
+// Load environment variables from .env.local (Next.js convention)
+// dotenv.config() loads .env by default, but we need .env.local
+dotenv.config({ path: resolve(process.cwd(), '.env.local') });
+// Also try .env as fallback
+dotenv.config({ path: resolve(process.cwd(), '.env') });
 
 const dev = process.env.NODE_ENV !== 'production';
 const currentPort = 3000;
