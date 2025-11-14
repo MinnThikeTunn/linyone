@@ -10,6 +10,7 @@ import { NotificationToasts } from "@/components/notification-toasts";
 import { LiveAlerts } from "@/components/alerts/live-alerts";
 import DisasterToasts from "@/components/alerts/disaster-toasts";
 import LastSeenUpdater from "@/components/last-seen-updater";
+import  AIChatAssistant  from "@/components/ai-chat";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
