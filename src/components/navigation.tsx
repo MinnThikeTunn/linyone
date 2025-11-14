@@ -46,66 +46,6 @@ const adminNavigation = [
   { name: 'admin', href: '/admin', icon: Settings, labelKey: 'nav.admin' },
 ]
 
-// Mock notifications (copied from navigation1.tsx)
-const mockNotifications = [
-  {
-    id: '1',
-    type: 'safety_check',
-    user: 'System Alert',
-    action: 'Are you ok?',
-    time: '2min',
-    read: false,
-    icon: ShieldCheck,
-    color: 'text-red-500',
-    hasActions: true,
-    buttonType: 'safety' // Safe/Not Safe buttons
-  },
-  {
-    id: '2',
-    type: 'job_offer',
-    user: 'Job Center',
-    action: 'There is job near by you are you accept it or not?',
-    time: '1h',
-    read: false,
-    icon: Briefcase,
-    color: 'text-blue-500',
-    hasActions: true,
-    buttonType: 'job' // Accept/Decline buttons
-  },
-  {
-    id: '3',
-    type: 'family_verification',
-    user: 'Family System',
-    action: 'Are you mother of Mg Mg?',
-    time: '5min',
-    read: false,
-    icon: User,
-    color: 'text-green-500',
-    hasActions: true,
-    buttonType: 'family' // Accept/Decline buttons
-  },
-  {
-    id: '4',
-    type: 'friend_request_accepted',
-    user: 'Jose Bradley',
-    action: 'accepted your friend request',
-    time: '28min',
-    read: false,
-    icon: UserCheck,
-    color: 'text-green-500'
-  },
-  {
-    id: '5',
-    type: 'activity_hosting',
-    user: 'Eliza Briggs',
-    action: 'is hosting a Crossfit Activity',
-    time: '1h',
-    read: false,
-    icon: Activity,
-    color: 'text-blue-500'
-  }
-]
-
 export function Navigation() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const pathname = usePathname()
@@ -115,7 +55,7 @@ export function Navigation() {
   const [unreadCount, setUnreadCount] = useState<number>(0)
   const [pendingRequests, setPendingRequests] = useState<any[]>([])
   const [channel, setChannel] = useState<any | null>(null)
-  // Local notification state (copied from navigation1)
+  // Local notification state
   const [notifications, setNotifications] = useState<NotificationRecord[]>([])
   const [processingRequest, setProcessingRequest] = useState<{ id: string; action: 'accept' | 'decline' } | null>(null)
   // Track deleted notification IDs to prevent re-adding (using refs so they're accessible in closures)
