@@ -170,10 +170,10 @@ export default function FamilyTab(props: Props) {
       const optimisticExpiry = new Date(Date.now() + secs * 1000).toISOString()
       // Optimistic local state: unknown + client-side expiry + record local started time (active_check_started_at)
       setFamilyMembers(prev => prev.map(m => m.id === memberId ? { ...m, status: 'unknown', safety_status: 'unknown', safety_check_started_at: nowIso, safety_check_expires_at: optimisticExpiry, active_check_started_at: nowIso } : m))
-      alert('Safety check sent')
+      alert(t('family.checkSent'))
     } catch (err) {
       console.error(err)
-      alert('Failed to send safety check')
+      alert(t('family.checkFailed'))
     }
   }
 
@@ -188,11 +188,11 @@ export default function FamilyTab(props: Props) {
         const requests = await getSentFamilyRequests(user.id)
         setSentRequests(requests || [])
       } else {
-        alert('Failed to cancel request')
+        alert(t('family.cancelFailed'))
       }
     } catch (err) {
       console.error(err)
-      alert('Failed to cancel request')
+      alert(t('family.cancelFailed'))
     }
   }
 
@@ -362,7 +362,7 @@ export default function FamilyTab(props: Props) {
                             <div className="flex flex-col sm:flex-row items-center gap-2">
                               <Button size="sm" className="w-full sm:w-auto" onClick={async () => {
                                 if (!user?.id || !selectedFound?.id || !memberRelation.trim()) {
-                                  alert('Please specify the relation before sending request')
+                                  alert(t('family.specifyRelation'))
                                   return
                                 }
                                 try {
@@ -373,7 +373,7 @@ export default function FamilyTab(props: Props) {
                                       const requests = await getSentFamilyRequests(user.id)
                                       setSentRequests(requests || [])
                                     }
-                                    alert('Family request sent! Waiting for approval.')
+                                    alert(t('family.requestSent'))
                                     setSearchIdentifier('')
                                     setSearchResults([])
                                     setSelectedFound(null)
@@ -382,35 +382,36 @@ export default function FamilyTab(props: Props) {
                                     return
                                   }
                                   if (res?.error === 'already_linked') {
-                                    alert('This member is already in your family network.')
+                                    alert(t('family.alreadyInNetwork'))
                                   } else if (res?.error === 'request_already_sent') {
-                                    alert('You have already sent a request to this person.')
+                                    alert(t('family.alreadyRequested'))
                                   } else {
                                     console.warn('request not successful', res?.error)
-                                    alert('Failed to send request. Please try again.')
+                                    alert(t('family.sendRequestFailed'))
                                   }
                                 } catch (err) {
                                   console.error('send request failed', err)
-                                  alert('An error occurred. Please try again.')
+                                  alert(t('family.errorOccurred'))
                                 }
-                              }}>Send Request</Button>
-                              <Button size="sm" variant="outline" className="w-full sm:w-auto" onClick={() => setSelectedFound(null)}>Cancel</Button>
+                              }}>{t('family.sendRequest')}</Button>
+                              <Button size="sm" variant="outline" className="w-full sm:w-auto" onClick={() => setSelectedFound(null)}>{t('common.cancel')}</Button>
                             </div>
                           </div>
 
                           <div className="mt-3 grid grid-cols-1 gap-2">
-                            <Label htmlFor="member-relation" className="text-sm font-medium">Relation <span className="text-red-500">*</span></Label>
+                            <Label htmlFor="member-relation" className="text-sm font-medium">{t('family.relationLabel')} <span className="text-red-500">*</span></Label>
                             <Input
                               id="member-relation"
                               value={memberRelation}
                               onChange={(e) => setMemberRelation(e.target.value)}
-                              placeholder="e.g., Mother, Father, Brother, Sister"
+                              placeholder={t('family.relationLabel')}
                               required
                             />
                             <div className="flex gap-2">
-                              {['Mother','Father','Brother','Sister','Wife','Husband','Son','Daughter'].map((rel) => (
-                                <Button key={rel} size="sm" className="w-full sm:w-auto" variant={memberRelation === rel ? 'secondary' : 'ghost'} onClick={() => setMemberRelation(rel)}>
-                                  {rel}
+                              {['mother','father','brother','sister','wife','husband','son','daughter'].map((rel) => (
+                                <Button key={rel} size="sm" className="w-full sm:w-auto" variant={memberRelation === t(`family.${rel}`) ? 'secondary' : 'ghost'} onClick={() => setMemberRelation(t(`family.${rel}`))}
+                                >
+                                  {t(`family.${rel}`)}
                                 </Button>
                               ))}
                             </div>
@@ -531,11 +532,11 @@ export default function FamilyTab(props: Props) {
                                 setFamilyMembers(deduped3)
                               } else {
                                 console.warn('unlink failed', res?.error)
-                                alert('Failed to unlink member')
+                                alert(t('family.unlinkFailed'))
                               }
                             } catch (err) {
                               console.error(err)
-                              alert('Failed to unlink member')
+                              alert(t('family.unlinkFailed'))
                             }
                           }}
                         >

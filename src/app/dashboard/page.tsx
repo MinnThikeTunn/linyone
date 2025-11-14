@@ -322,11 +322,10 @@ export default function DashboardPage() {
       )
     );
   };
-
   // model progress start
   const handleStartModule = (moduleId: string) => {
-    // Navigate to the safety module lesson page
-    router.push(`/safety/lesson/${moduleId}`);
+    // Navigate to the lesson page with the module ID
+    router.push(`/safety/lesson/${moduleId}`)
   };
 
   const getStatusColor = (status: string) => {

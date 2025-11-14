@@ -604,14 +604,14 @@ export default function HomePage() {
                       }}
                       className="mt-2 w-full"
                     >
-                      Done
+                      {t('map.done')}
                     </Button>
                   </div>
                 )}
                 
                 {/* Map Legend */}
                 <div className="absolute bottom-4 left-4 bg-white rounded-lg shadow-lg p-3 z-10">
-                  <h3 className="text-sm font-semibold mb-2">Legend</h3>
+                  <h3 className="text-sm font-semibold mb-2">{t('map.legend')}</h3>
                   <div className="space-y-1">
                     <div className="flex items-center gap-2 text-xs">
                       <div className="w-4 h-4 bg-red-500 rounded-full" />
@@ -644,7 +644,7 @@ export default function HomePage() {
             {/* Quick Stats */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg">Quick Stats</CardTitle>
+                <CardTitle className="text-lg">{t('map.quickStats')}</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-2 gap-4">
@@ -652,13 +652,13 @@ export default function HomePage() {
                     <div className="text-2xl font-bold text-red-600">
                       {pins.filter(p => p.type === 'damaged').length}
                     </div>
-                    <div className="text-sm text-gray-600">Damaged Areas</div>
+                    <div className="text-sm text-gray-600">{t('map.damagedAreas')}</div>
                   </div>
                   <div className="text-center">
                     <div className="text-2xl font-bold text-green-600">
                       {pins.filter(p => p.type === 'safe').length}
                     </div>
-                    <div className="text-sm text-gray-600">Safe Zones</div>
+                    <div className="text-sm text-gray-600">{t('map.safeZones')}</div>
                   </div>
                 </div>
               </CardContent>
@@ -667,7 +667,7 @@ export default function HomePage() {
             {/* Recent Pins */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg">Recent Reports</CardTitle>
+                <CardTitle className="text-lg">{t('map.recentReports')}</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-3 max-h-96 overflow-y-auto">
