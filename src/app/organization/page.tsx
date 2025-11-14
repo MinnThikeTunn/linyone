@@ -127,7 +127,7 @@ interface Supply {
 
 interface AggregatedSupply {
   region: string
-  category: string
+  itemName: string
   unit: string
   totalQuantityNeeded: number
   itemId: string
@@ -1374,7 +1374,7 @@ export default function OrganizationPage() {
                   <TableHeader>
                     <TableRow className="bg-blue-50 hover:bg-blue-100 border-b-2 border-blue-200">
                       <TableHead className="font-bold text-gray-800">Region</TableHead>
-                      <TableHead className="font-bold text-gray-800">Category</TableHead>
+                      <TableHead className="font-bold text-gray-800">Item Name</TableHead>
                       <TableHead className="font-bold text-gray-800">Unit</TableHead>
                       <TableHead className="font-bold text-gray-800 text-right">Total Quantity Needed</TableHead>
                     </TableRow>
@@ -1414,13 +1414,13 @@ export default function OrganizationPage() {
 
                         regionSupplies.forEach((supply, idx) => {
                           rows.push(
-                            <TableRow key={`${region}-${supply.category}-${idx}`} className="hover:bg-blue-50 transition-colors">
+                            <TableRow key={`${region}-${supply.itemName}-${idx}`} className="hover:bg-blue-50 transition-colors">
                               {idx === 0 ? (
                                 <TableCell rowSpan={CATEGORY_COUNT} className="font-semibold align-top border-r bg-gray-50">
                                   <div className="py-4">{region}</div>
                                 </TableCell>
                               ) : null}
-                              <TableCell className="font-medium text-gray-700">{supply.category}</TableCell>
+                              <TableCell className="font-medium text-gray-700">{supply.itemName}</TableCell>
                               <TableCell className="text-gray-600">{supply.unit}</TableCell>
                               <TableCell>
                                 <div className="flex items-center justify-end gap-2">
