@@ -455,37 +455,37 @@ export function LiveAlerts({ className }: { className?: string }) {
       {/* Header with Region Filter and Status */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-6">
         <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 flex-wrap">
             <div className="flex items-center gap-2">
               <div className={`w-2 h-2 rounded-full ${status === 'live' ? 'bg-green-500 animate-pulse' : status === 'error' ? 'bg-red-500' : 'bg-gray-400'}`} />
               <span className="text-sm font-medium text-gray-700">
                 {status === 'live' ? 'Live Updates' : status === 'error' ? 'Connection Error' : 'Connecting...'}
               </span>
             </div>
-            <div className="h-4 w-px bg-gray-300" />
-            <div className="flex items-center gap-2">
+            <div className="h-4 w-px bg-gray-300 hidden sm:block" />
+            <div className="flex items-center gap-2 w-full sm:w-auto">
               <span className="text-sm font-medium text-gray-600">Region:</span>
-              <div className="inline-flex rounded-lg border border-gray-300 overflow-hidden shadow-sm">
+              <div className="inline-flex rounded-lg border border-gray-300 overflow-hidden shadow-sm w-full sm:w-auto">
                 <button
-                  className={`px-4 py-1.5 text-sm font-medium flex items-center gap-2 transition-colors ${region==='global' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+                  className={`flex-1 sm:flex-none px-3 sm:px-4 py-1.5 text-xs sm:text-sm font-medium flex items-center justify-center gap-1.5 sm:gap-2 transition-colors ${region==='global' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
                   onClick={() => setRegion('global')}
                   title="Show global alerts"
                 >
-                  <Globe className="w-4 h-4" /> Global
+                  <Globe className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> <span className="hidden xs:inline">Global</span><span className="xs:hidden">All</span>
                 </button>
                 <button
-                  className={`px-4 py-1.5 text-sm font-medium flex items-center gap-2 border-l border-gray-300 transition-colors ${region==='myanmar' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+                  className={`flex-1 sm:flex-none px-3 sm:px-4 py-1.5 text-xs sm:text-sm font-medium flex items-center justify-center gap-1.5 sm:gap-2 border-l border-gray-300 transition-colors ${region==='myanmar' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
                   onClick={() => setRegion('myanmar')}
                   title="Show Myanmar alerts"
                 >
-                  <MapPin className="w-4 h-4" /> Myanmar
+                  <MapPin className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> Myanmar
                 </button>
               </div>
             </div>
           </div>
-          <Button size="sm" variant="outline" onClick={sendTestEqAlert} title="Broadcast a test earthquake alert" className="shadow-sm">
+          <Button size="sm" variant="outline" onClick={sendTestEqAlert} title="Broadcast a test earthquake alert" className="shadow-sm w-full sm:w-auto">
             <AlertTriangle className="w-4 h-4 mr-2" />
-            Send Test Alert
+            <span className="hidden xs:inline">Send Test Alert</span><span className="xs:hidden">Test</span>
           </Button>
         </div>
       </div>
