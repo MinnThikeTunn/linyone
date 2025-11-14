@@ -161,40 +161,94 @@ export default function AdminPage() {
     }
   }, [user]);
 
-  // Fetch organizations from Supabase
+  // Fetch organizations from Supabase with volunteer counts
   const fetchOrganizations = async () => {
     try {
-      const { data, error } = await supabase
+      const { data: orgsData, error: orgsError } = await supabase
         .from('organizations')
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) {
-        console.error('Error fetching organizations:', error);
+      if (orgsError) {
+        console.error('Error fetching organizations:', orgsError);
         return;
       }
 
-      if (data) {
-        setOrganizations(data.map(org => ({
-          ...org,
-          status: (org.status as "active" | "inactive" | "pending") || "pending",
-          volunteer_count: org.volunteer_count || 0,
-          funding: org.funding || "$0",
-          region: org.region || "Unknown",
-          contactEmail: org.email,
-          contactPhone: org.phone,
-          username: org.email.split('@')[0],
-          supplies: {
-            medical: Math.floor(Math.random() * 300),
-            food: Math.floor(Math.random() * 1200),
-            water: Math.floor(Math.random() * 1500),
-            shelter: Math.floor(Math.random() * 100),
-            equipment: Math.floor(Math.random() * 400),
-          }
-        })));
+      if (orgsData) {
+        // Fetch volunteer counts for each organization
+        const organizationsWithVolunteers = await Promise.all(
+          orgsData.map(async (org) => {
+            const { count, error: volunteerError } = await supabase
+              .from('org-member')
+              .select('*', { count: 'exact', head: true })
+              .eq('organization_id', org.id)
+              .eq('status', 'active');
+
+            if (volunteerError) {
+              console.error('Error fetching volunteer count for org:', org.id, volunteerError);
+              return {
+                ...org,
+                volunteer_count: 0,
+                status: (org.status as "active" | "inactive" | "pending") || "pending",
+                funding: org.funding || "$0",
+                region: org.region || "Unknown",
+                contactEmail: org.email,
+                contactPhone: org.phone,
+                username: org.email.split('@')[0],
+                supplies: {
+                  medical: Math.floor(Math.random() * 300),
+                  food: Math.floor(Math.random() * 1200),
+                  water: Math.floor(Math.random() * 1500),
+                  shelter: Math.floor(Math.random() * 100),
+                  equipment: Math.floor(Math.random() * 400),
+                }
+              };
+            }
+
+            return {
+              ...org,
+              volunteer_count: count || 0,
+              status: (org.status as "active" | "inactive" | "pending") || "pending",
+              funding: org.funding || "$0",
+              region: org.region || "Unknown",
+              contactEmail: org.email,
+              contactPhone: org.phone,
+              username: org.email.split('@')[0],
+              supplies: {
+                medical: Math.floor(Math.random() * 300),
+                food: Math.floor(Math.random() * 1200),
+                water: Math.floor(Math.random() * 1500),
+                shelter: Math.floor(Math.random() * 100),
+                equipment: Math.floor(Math.random() * 400),
+              }
+            };
+          })
+        );
+
+        setOrganizations(organizationsWithVolunteers);
       }
     } catch (error) {
       console.error('Error fetching organizations:', error);
+    }
+  };
+
+  // Fetch total volunteer count across all organizations
+  const fetchTotalVolunteers = async (): Promise<number> => {
+    try {
+      const { count, error } = await supabase
+        .from('org-member')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'active');
+
+      if (error) {
+        console.error('Error fetching total volunteers:', error);
+        return 0;
+      }
+
+      return count || 0;
+    } catch (error) {
+      console.error('Error fetching total volunteers:', error);
+      return 0;
     }
   };
 
@@ -572,14 +626,25 @@ export default function AdminPage() {
   const pendingOrganizations = organizations.filter(
     (org) => org.status === "pending"
   ).length;
-  const totalVolunteers = organizations.reduce(
-    (sum, org) => sum + (org.volunteer_count || 0),
-    0
-  );
+  
+  // Calculate total volunteers from org_member table
+  const [totalVolunteers, setTotalVolunteers] = useState(0);
   const totalFunding = organizations.reduce((sum, org) => {
     const amount = parseInt(org.funding?.replace(/[^0-9]/g, "") || "0");
     return sum + amount;
   }, 0);
+
+  // Fetch total volunteer count when organizations change
+  useEffect(() => {
+    const loadTotalVolunteers = async () => {
+      const count = await fetchTotalVolunteers();
+      setTotalVolunteers(count);
+    };
+    
+    if (organizations.length > 0) {
+      loadTotalVolunteers();
+    }
+  }, [organizations]);
 
   // Prepare chart data
   const regionData = organizations.reduce((acc, org) => {
@@ -829,8 +894,8 @@ export default function AdminPage() {
                           </TableCell>
                           <TableCell>
                             <div className="flex items-center gap-1">
-                              
-                              {org.funding || "$0"}
+                              <DollarSign className="w-4 h-4 text-gray-500" />
+                              {org.funding || "0"}
                             </div>
                           </TableCell>
                           <TableCell>
@@ -1678,25 +1743,7 @@ export default function AdminPage() {
                       </Select>
                     </div>
 
-                    <div>
-                      <Label htmlFor="org-status">Status</Label>
-                      <Select
-                        value={newOrg.status}
-                        onValueChange={(value: "active" | "inactive" | "pending") =>
-                          setNewOrg((prev) => ({ ...prev, status: value }))
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select status" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="active">Active</SelectItem>
-                          <SelectItem value="pending">Pending</SelectItem>
-                          <SelectItem value="inactive">Inactive</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
+                    
                     <div>
                       <Label htmlFor="org-funding">Funding</Label>
                       <Input
