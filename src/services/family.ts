@@ -626,23 +626,29 @@ function getReciprocalRelation(relation: string): string {
 export async function findUsers(identifier: string) {
   try {
     if (!identifier) return []
+    
+    const trimmed = identifier.trim()
+    
     // Try exact phone
-    const phoneRes = await supabase.from('users').select('id,name,email,phone,image').eq('phone', identifier).limit(10)
+    const phoneRes = await supabase.from('users').select('id,name,email,phone,image').eq('phone', trimmed).limit(10)
     if (phoneRes.error) {
       // log and continue
       console.warn('findUsers phone query error', phoneRes.error)
     }
     if (phoneRes.data && phoneRes.data.length) return phoneRes.data
 
-    // Try exact email
-    const emailRes = await supabase.from('users').select('id,name,email,phone,image').eq('email', identifier).limit(10)
-    if (emailRes.error) {
-      console.warn('findUsers email query error', emailRes.error)
+    // Try exact email (only if it looks like an email)
+    const isEmailLike = trimmed.includes('@') && trimmed.includes('.')
+    if (isEmailLike) {
+      const emailRes = await supabase.from('users').select('id,name,email,phone,image').eq('email', trimmed).limit(10)
+      if (emailRes.error) {
+        console.warn('findUsers email query error', emailRes.error)
+      }
+      if (emailRes.data && emailRes.data.length) return emailRes.data
     }
-    if (emailRes.data && emailRes.data.length) return emailRes.data
 
     // Fallback: name search (ILIKE contains)
-    const nameRes = await supabase.from('users').select('id,name,email,phone,image').ilike('name', `%${identifier}%`).limit(10)
+    const nameRes = await supabase.from('users').select('id,name,email,phone,image').ilike('name', `%${trimmed}%`).limit(10)
     if (nameRes.error) {
       console.warn('findUsers name query error', nameRes.error)
     }

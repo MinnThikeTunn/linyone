@@ -395,6 +395,8 @@ export default function RegisterPage() {
                 </div>
               )}
               
+              {/* Removed role-based organization selection */}
+              
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="password" className={fieldErrors.password ? 'text-red-500' : ''}>

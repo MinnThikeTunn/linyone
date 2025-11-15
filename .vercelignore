@@ -1,0 +1,17 @@
+# Ignore backend folder
+backend/
+
+# Ignore Python-related files
+*.pyc
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Other ignores
+.env.local
+.env*.local
+node_modules/
+.next/
+out/
+.DS_Store
+*.log

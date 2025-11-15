@@ -1,0 +1,177 @@
+[
+  {
+    "organization": "Yangon Mental Support Network",
+    "name": "Mental Wellness Volunteers",
+    "phones": ["09-888999000"],
+    "location": "Insein",
+    "region": "Yangon"
+  },
+  {
+    "organization": "Independent Volunteers",
+    "name": "Ko Ko Rescue Team",
+    "phones": ["09-411122233"],
+    "location": "Hlaing",
+    "region": "Yangon"
+  },
+  {
+    "organization": "Public Donation Group",
+    "name": "Yangon Earthquake Relief",
+    "phones": ["09-777888999"],
+    "location": "Tamwe",
+    "region": "Yangon"
+  },
+  {
+    "organization": "Volunteer Food Providers",
+    "name": "Mee Eain Sar Pay",
+    "phones": ["09-887766554"],
+    "location": "Shwepyithar",
+    "region": "Yangon"
+  },
+  {
+    "organization": "UIT",
+    "name": "UIT 2",
+    "phones": ["09535454654"],
+    "location": "Yangon",
+    "region": "Yangon"
+  },
+  {
+    "organization": "Heavy Lift Supporters",
+    "name": "Kyaw Win Crane Services",
+    "phones": ["09-667788990"],
+    "location": "North Dagon",
+    "region": "Yangon"
+  },
+  {
+    "organization": "Community Volunteers",
+    "name": "Free Meals Dawei",
+    "phones": ["09-912345678"],
+    "location": "Dawei",
+    "region": "Tanintharyi"
+  },
+  {
+    "organization": "Volunteer Therapists",
+    "name": "Mental Health Dawei",
+    "phones": ["09-909090909"],
+    "location": "Dawei",
+    "region": "Tanintharyi"
+  },
+  {
+    "organization": "Private Company",
+    "name": "Myanmar Crane Co.",
+    "phones": ["09-222333444"],
+    "location": "Mingaladon",
+    "region": "Yangon"
+  },
+  {
+    "organization": "Volunteer Rescue Team",
+    "name": "U Aung Min",
+    "phones": ["09-421234567"],
+    "location": "Thingangyun",
+    "region": "Yangon"
+  },
+  {
+    "organization": "Bago Community Relief",
+    "name": "လှျဉ်းအဖွဲ့အကူအညီ",
+    "phones": ["09-444422331"],
+    "location": "Bago",
+    "region": "Bago"
+  },
+  {
+    "organization": "Red Cross Emergency Response",
+    "name": "Wai",
+    "phones": ["234567892"],
+    "location": "Yangon",
+    "region": "Yangon"
+  },
+  {
+    "organization": "UTL Crane Rental Services",
+    "name": "UTL Crane Rental Services",
+    "phones": ["09-782013003"],
+    "location": "Mandalay",
+    "region": "Mandalay"
+  },
+  {
+    "organization": "Aung Thein Than Forklift Rental Services",
+    "name": "Aung Thein Than Forklift Rental Services",
+    "phones": ["952-4076469"],
+    "location": "Mandalay",
+    "region": "Mandalay"
+  },
+  {
+    "organization": "(H.M.S) ပျဉ်ထောင်လွှတ်ကယ်ဆယ်ရေးအဖွဲ့",
+    "name": "(H.M.S) Rescue Team",
+    "phones": ["09-427553446"],
+    "location": "Meiktila",
+    "region": "Mandalay"
+  },
+  {
+    "organization": "KYUAKSE RESCUE",
+    "name": "KYUAKSE RESCUE",
+    "phones": ["09-258444414"],
+    "location": "Kyaukse",
+    "region": "Mandalay"
+  },
+  {
+    "organization": "UT Crane Rental Services",
+    "name": "UT Crane Rental Services",
+    "phones": ["09-782013003"],
+    "location": "Mandalay",
+    "region": "Mandalay"
+  },
+  {
+    "organization": "Volunteer Rescue Team",
+    "name": "U Aung Min",
+    "phones": ["09-421234567"],
+    "location": "Thingangyun",
+    "region": "Yangon"
+  },
+  {
+    "organization": "Ko Ko Rescue Team",
+    "name": "Independent Volunteers",
+    "phones": ["09-411122233"],
+    "location": "Hlaing",
+    "region": "Yangon"
+  },
+  {
+    "organization": "Free Meals Dawei",
+    "name": "Community Volunteers",
+    "phones": ["09-912345678"],
+    "location": "Dawei",
+    "region": "Tanintharyi"
+  },
+  {
+    "organization": "Red Cross Myanmar (MRCS)",
+    "name": "Red Cross Emergency Relief",
+    "phones": ["+95 9 977115642"],
+    "location": "Pathein",
+    "region": "Ayeyarwady"
+  },
+  {
+    "organization": "Kyaikto Community Rescue",
+    "name": "Kyaikto Rescue Team",
+    "phones": ["057-60008", "09-255701906"],
+    "location": "Kyaikto",
+    "region": "Mon"
+  },
+  {
+    "organization": "Myawaddy Public Rescue",
+    "name": "Myawaddy Rescue Team",
+    "phones": ["058-50511"],
+    "location": "Myawaddy",
+    "region": "Kayin"
+  },
+  {
+    "organization": "Hakha Rescue Team",
+    "name": "Hakha Public Rescue",
+    "phones": ["070-21021", "070-21069"],
+    "location": "Hakha",
+    "region": "Chin"
+  },
+  {
+    "organization": "Magway Crane Rental Group",
+    "name": "Crane Services Magway",
+    "phones": ["095-632028304", "095-632028305"],
+    "location": "Magway",
+    "region": "Magway"
+  }
+]

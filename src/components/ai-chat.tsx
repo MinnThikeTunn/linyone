@@ -1,293 +1,383 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { ScrollArea } from '@/components/ui/scroll-area'
-import { 
-  MessageCircle, 
-  Send, 
-  Bot, 
-  User, 
-  Mic, 
-  MicOff, 
-  Globe,
-  AlertTriangle,
-  Heart,
-  Shield,
-  MapPin,
-  Phone,
-  Clock,
-  CheckCircle
+import {
+  MessageCircle, Send, Bot, User, Mic, MicOff,
+  AlertTriangle, Heart, Shield, MapPin, Phone, Brain,
+  Paperclip, X
 } from 'lucide-react'
 import { useLanguage } from '@/hooks/use-language'
 import { useAuth } from '@/hooks/use-auth'
+import { askChat } from '@/lib/chat'
+import type { ChatCategory, AssistantKind } from '@/lib/chat'
+import { useSearchParams } from 'next/navigation'
+import { findContactsNear, loadContacts, type EmergencyContact } from '@/lib/contacts'
 
-interface Message {
-  id: string
-  type: 'user' | 'assistant'
-  content: string
-  timestamp: Date
-  category?: 'safety' | 'emergency' | 'location' | 'medical' | 'general'
-}
+type MsgType = 'user' | 'assistant'
+interface Message { id: string; type: MsgType; content: string; timestamp: Date; category?: ChatCategory }
+interface QuickAction { id: string; label: string; icon: React.ReactNode; prompt: string; category: ChatCategory }
 
-interface QuickAction {
-  id: string
-  label: string
-  icon: React.ReactNode
-  prompt: string
-  category: 'safety' | 'emergency' | 'location' | 'medical' | 'general'
-}
-
-const quickActions: QuickAction[] = [
-  {
-    id: '1',
-    label: 'Earthquake Safety',
-    icon: <AlertTriangle className="w-4 h-4" />,
-    prompt: 'What should I do during an earthquake?',
-    category: 'safety'
-  },
-  {
-    id: '2',
-    label: 'Find Shelter',
-    icon: <MapPin className="w-4 h-4" />,
-    prompt: 'Where is the nearest emergency shelter?',
-    category: 'location'
-  },
-  {
-    id: '3',
-    label: 'First Aid',
-    icon: <Heart className="w-4 h-4" />,
-    prompt: 'How do I perform basic first aid?',
-    category: 'medical'
-  },
-  {
-    id: '4',
-    label: 'Emergency Contacts',
-    icon: <Phone className="w-4 h-4" />,
-    prompt: 'What are the emergency phone numbers?',
-    category: 'emergency'
-  },
-  {
-    id: '5',
-    label: 'Emergency Kit',
-    icon: <Shield className="w-4 h-4" />,
-    prompt: 'What should be in my emergency kit?',
-    category: 'safety'
-  }
+const QA_EMERGENCY: QuickAction[] = [
+  { id: '1', label: 'Earthquake Safety', icon: <AlertTriangle className="w-4 h-4" />, prompt: 'What should I do during an earthquake?', category: 'safety' },
+  { id: '2', label: 'Find Shelter',      icon: <MapPin className="w-4 h-4" />,         prompt: 'Where is the nearest emergency shelter?', category: 'location' },
+  { id: '3', label: 'First Aid',          icon: <Heart className="w-4 h-4" />,          prompt: 'How do I perform basic first aid?', category: 'medical' },
+  { id: '4', label: 'Emergency Contacts', icon: <Phone className="w-4 h-4" />,          prompt: 'What are the emergency contacts near me?', category: 'emergency' },
+  { id: '5', label: 'Emergency Kit',      icon: <Shield className="w-4 h-4" />,         prompt: 'What should be in my emergency kit?', category: 'safety' },
 ]
 
-const mockResponses: { [key: string]: string } = {
-  'earthquake': 'During an earthquake: 1) Drop to hands and knees immediately, 2) Take cover under a sturdy desk or table, 3) Hold on until shaking stops. Stay away from windows, heavy objects, and exterior walls. If outdoors, move away from buildings, trees, and power lines.',
-  'shelter': 'The nearest emergency shelters are typically located at schools, community centers, and government buildings. Check the map on our main page for real-time shelter locations near you. Shelters provide food, water, medical aid, and temporary accommodation.',
-  'first aid': 'Basic first aid steps: 1) Check the scene for safety, 2) Check for consciousness and breathing, 3) Call emergency services if needed, 4) Control bleeding with direct pressure, 5) Keep the person warm and comfortable, 6) Monitor their condition until help arrives.',
-  'emergency': 'Emergency numbers in Myanmar: Fire - 199, Police - 199, Ambulance - 199. For earthquake-specific emergencies, also contact the Disaster Management Department at 067-409-888. Save these numbers in your phone.',
-  'kit': 'Emergency kit essentials: Water (1 gallon/person/day for 3 days), Non-perishable food (3-day supply), Flashlight and batteries, First aid kit, Medications, Whistle, Dust masks, Manual can opener, Local maps, Cell phone with chargers, Important documents, Cash, Emergency blanket.'
-}
+const QA_MENTAL: QuickAction[] = [
+  { id: 'm1', label: 'Calm Breathing',  icon: <Brain className="w-4 h-4" />, prompt: 'I’m feeling anxious. Can you guide me through a short breathing exercise?', category: 'mental' },
+  { id: 'm2', label: 'Panic Help',      icon: <Heart className="w-4 h-4" />, prompt: 'I might be having a panic attack. Help me calm down.', category: 'mental' },
+  { id: 'm3', label: 'Sleep After Quake', icon: <Brain className="w-4 h-4" />, prompt: 'I can’t sleep after the earthquake. Any tips to feel safe and rest?', category: 'mental' },
+  { id: 'm4', label: 'Talk to Someone', icon: <Heart className="w-4 h-4" />, prompt: 'I feel lonely and scared. What should I do right now?', category: 'mental' },
+]
 
-export default function AIChatAssistant() {
-  const { t, language } = useLanguage()
+const formatTime = (d: Date) =>
+  new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(d)
+
+// ——— Intent detection (EN + Burmese) ———
+const EMERGENCY_CONTACTS_RE = new RegExp(
+  [
+    'emergency\\s*(contacts?|numbers?)',
+    'emergency\\s*phone',
+    'အရေးပေါ်.*(?:ဖုန်း|နံပါတ်|ဆက်သွယ်)',
+    'ဆက်သွယ်ရန်.*အရေးပေါ်'
+  ].join('|'),
+  'i'
+)
+
+export default function AIChatAssistant({ initialOpen = false }: { initialOpen?: boolean }) {
+  const { language } = useLanguage()
   const { user } = useAuth()
-  const [isOpen, setIsOpen] = useState(false)
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: '1',
-      type: 'assistant',
-      content: language === 'en' 
-        ? 'Hello! I\'m your AI assistant for earthquake safety and emergency response. How can I help you today?'
-        : 'မင်္ဂလာပါ! ကျွန်ုပ်သည် ငလျင်လုံခြုံရေးနှင့် အရေးပေါ်တုန်းဆိုင်းမှု AI လက်ထောက်ဖြစ်ပါသည်။ ကျွန်ုပ်ကို ဘယ်လိုကူညီနိုင်ပါသလဲ?',
-      timestamp: new Date(),
-      category: 'general'
-    }
-  ])
+  const search = useSearchParams()
+
+  const queryOpen = search?.get('chat') === '1'
+  const [isOpen, setIsOpen] = useState(initialOpen || queryOpen)
+  const [mode, setMode] = useState<AssistantKind>('emergency')
+
+  const [threads, setThreads] = useState<Record<AssistantKind, Message[]>>({
+    emergency: [],
+    mental: []
+  })
+
+  // connection indicator
+  const [online, setOnline] = useState<boolean | null>(null)
+  const [lastModel, setLastModel] = useState<string | undefined>(undefined)
+
+  // contact/location states
+  const [awaitingLocation, setAwaitingLocation] = useState(false)
+  const [userLocation, setUserLocation] = useState<string | null>(null)
+
+  // attachments
+  const [attached, setAttached] = useState<File[]>([])
+
   const [inputMessage, setInputMessage] = useState('')
   const [isTyping, setIsTyping] = useState(false)
   const [isListening, setIsListening] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }
-
   useEffect(() => {
-    scrollToBottom()
-  }, [messages])
+    setThreads({
+      emergency: [{
+        id: 'init-em',
+        type: 'assistant',
+        content: language === 'en'
+          ? "Hello! I'm here for quick earthquake & emergency help. Ask me anything."
+          : 'မင်္ဂလာပါ! ငလျင်နှင့် အရေးပေါ်အတွက် အကူအညီပေးနိုင်ပါတယ်။',
+        timestamp: new Date(),
+        category: 'general',
+      }],
+      mental: [{
+        id: 'init-me',
+        type: 'assistant',
+        content: language === 'en'
+          ? "Hi, I’m here for gentle mental and emotional support. You’re not alone—how are you feeling right now?"
+          : 'မင်္ဂလာပါ—စိတ်ပိုင်းဆိုင်ရာ အားပေးကူညီမှုအတွက် ဒီမှာရှိပါတယ်။ သင်တစ်ယောက်ထဲ မဟုတ်ပါ။ အခု ဘယ်လိုခံစားနေလဲ?',
+        timestamp: new Date(),
+        category: 'mental',
+      }]
+    })
 
-  const generateResponse = (userMessage: string): string => {
-    const lowerMessage = userMessage.toLowerCase()
-    
-    // Check for keywords and provide relevant responses
-    if (lowerMessage.includes('earthquake') || lowerMessage.includes('ငလျင်')) {
-      return mockResponses['earthquake']
-    } else if (lowerMessage.includes('shelter') || lowerMessage.includes('ခိုလှုံရာ')) {
-      return mockResponses['shelter']
-    } else if (lowerMessage.includes('first aid') || lowerMessage.includes('ပထမအကူအညီ')) {
-      return mockResponses['first aid']
-    } else if (lowerMessage.includes('emergency') || lowerMessage.includes('phone') || lowerMessage.includes('အရေးပေါ်')) {
-      return mockResponses['emergency']
-    } else if (lowerMessage.includes('kit') || lowerMessage.includes('supplies') || lowerMessage.includes('အသုံးအဆောင်')) {
-      return mockResponses['kit']
-    } else {
-      // Default response
-      return language === 'en'
-        ? 'I understand you need help with emergency preparedness. For specific assistance, you can ask about earthquake safety, finding shelters, first aid, emergency contacts, or emergency kits. If this is a real emergency, please call 199 immediately.'
-        : 'အရေးပေါ်ပြင်ဆင်မှုအတွက် ကူညီမှုလိုအပ်ကြောင်း ကျွန်ုပ်နားလည်ပါသည်။ သီးခြားအကူအညီများအတွက် ငလျင်လုံခြုံရေး၊ ခိုလှုံရာရှာဖွေခြင်း၊ ပထမအကူအညီ၊ အရေးပေါ်ဆက်သွယ်ရန် ဖုန်းနံပါတ်များ သို့မဟုတ် အရေးပေါ်အသုံးအဆောင်ပစ္စည်းများအကြောင်း မေးနိုင်ပါသည်။ အကယ်၍ ဤသည် အရေးပေါ်အခြေအနေဖြစ်ပါက ချက်ချင်း 199 ကိုခေါ်ပါ။'
+    const handleOnline = () => setOnline(true)
+    const handleOffline = () => setOnline(false)
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+    setOnline(navigator.onLine)
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [language])
+
+  const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  useEffect(() => { scrollToBottom() }, [threads, mode, attached.length])
+
+  const currentMessages = threads[mode]
+
+  // RENDER: contacts list as a nice assistant bubble
+  function renderContactsMessage(items: EmergencyContact[]): Message {
+    const lines = items.map((c) => {
+      const title = c.name ? `${c.organization} — ${c.name}` : c.organization
+      const phones = c.phones.map(p => `📞 ${p}`).join(' · ')
+      const where = [c.location, c.region].filter(Boolean).join(', ')
+      return `• ${title}\n   ${phones}\n   📍 ${where}`
+    })
+    const header = language === 'en'
+      ? 'Here are nearby emergency contacts:'
+      : 'သင့်နေရာအနီးအရေးပေါ် ဆက်သွယ်ရန်များ —'
+    return {
+      id: String(Date.now() + Math.random()),
+      type: 'assistant',
+      content: `${header}\n\n${lines.join('\n\n')}\n\n${
+        language === 'en'
+          ? 'Tap a number to call. For life-threatening emergencies, dial 199 immediately.'
+          : 'ဖုန်းနံပါတ်ကို နှိပ်၍ ခေါ်ဆိုနိုင်သည်။ အရေးပေါ်အန္တရာယ်ရှိပါက 199 ကို ချက်ချင်းခေါ်ပါ။'
+      }`,
+      timestamp: new Date(),
+      category: 'emergency'
     }
   }
 
-  const handleSendMessage = async () => {
-    if (!inputMessage.trim()) return
+  // attachments: add/remove
+  const onPickFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files ? Array.from(e.target.files) : []
+    if (files.length) setAttached(prev => [...prev, ...files])
+    e.currentTarget.value = '' // reset for same-file reselect
+  }
+  const removeFile = (i: number) => setAttached(prev => prev.filter((_, idx) => idx !== i))
 
-    const userMessage: Message = {
-      id: Date.now().toString(),
+  // MAIN send
+  const send = async (text?: string) => {
+    const content = (text ?? inputMessage).trim()
+    // allow sending if either message or attachments exist
+    if (!content && attached.length === 0) return
+
+    const me: Message = {
+      id: String(Date.now()),
       type: 'user',
-      content: inputMessage,
+      content: content || '[sent attachment]',
       timestamp: new Date()
     }
-
-    setMessages(prev => [...prev, userMessage])
+    setThreads(prev => ({ ...prev, [mode]: [...prev[mode], me] }))
     setInputMessage('')
     setIsTyping(true)
 
-    // Simulate AI response delay
-    setTimeout(() => {
-      const assistantMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        type: 'assistant',
-        content: generateResponse(inputMessage),
-        timestamp: new Date(),
-        category: 'general'
+    // 1) If we are waiting for a location, treat this message as location and answer with contacts
+    if (mode === 'emergency' && awaitingLocation && content) {
+      try {
+        await loadContacts()
+        const results = await findContactsNear(content, 8)
+        setUserLocation(content)
+        setAwaitingLocation(false)
+        if (results.length > 0) {
+          const msg = renderContactsMessage(results)
+          setThreads(prev => ({ ...prev, [mode]: [...prev[mode], msg] }))
+        } else {
+          const noRes: Message = {
+            id: String(Date.now()+1),
+            type: 'assistant',
+            content: language === 'en'
+              ? `I couldn't find contacts for "${content}". Please try another nearby city/township.`
+              : `"${content}" အတွက် ဆက်သွယ်ရန်များ မရရှိပါ။ နီးစပ်မြို့/မြို့နယ်တစ်ခုကို ထည့်သွင်းပါ။`,
+            timestamp: new Date(),
+            category: 'emergency'
+          }
+          setThreads(prev => ({ ...prev, [mode]: [...prev[mode], noRes] }))
+        }
+      } finally {
+        setIsTyping(false)
+        // do NOT clear attachments here (location flow doesn’t use them)
       }
-      setMessages(prev => [...prev, assistantMessage])
+      return
+    }
+
+    // 2) Detect intent: emergency contacts
+    if (mode === 'emergency' && content && EMERGENCY_CONTACTS_RE.test(content)) {
+      try {
+        await loadContacts()
+        if (!userLocation) {
+          const askLoc: Message = {
+            id: String(Date.now()+1),
+            type: 'assistant',
+            content: language === 'en'
+              ? 'Sure — what city/township are you in? (e.g., Hlaing, Insein, Mandalay)'
+              : 'ပြန်လည်ဆိုင်ရာနေရာကို ဖြေလှပေးပါ (ဥပမာ — လှိုင်၊ အင်းစိန်၊ မန္တလေး)',
+            timestamp: new Date(),
+            category: 'emergency'
+          }
+          setAwaitingLocation(true)
+          setThreads(prev => ({ ...prev, [mode]: [...prev[mode], askLoc] }))
+        } else {
+          const results = await findContactsNear(userLocation, 8)
+          if (results.length > 0) {
+            const msg = renderContactsMessage(results)
+            setThreads(prev => ({ ...prev, [mode]: [...prev[mode], msg] }))
+          } else {
+            const noRes: Message = {
+              id: String(Date.now()+1),
+              type: 'assistant',
+              content: language === 'en'
+                ? `I couldn't find contacts near "${userLocation}". Tell me another nearby township.`
+                : `"${userLocation}" နီးပတ်ဝန်းကျင်တွင် မတွေ့ပါ။ နီးစပ်မြို့နယ်တစ်ခုကို ပြောပါ။`,
+              timestamp: new Date(),
+              category: 'emergency'
+            }
+            setAwaitingLocation(true)
+            setThreads(prev => ({ ...prev, [mode]: [...prev[mode], noRes] }))
+          }
+        }
+      } finally {
+        setIsTyping(false)
+      }
+      return
+    }
+
+    // 3) Otherwise: normal LLM flow (Groq/Ollama + optional files to backend)
+    try {
+      const data = await askChat(me.content, language as 'en' | 'my', mode, attached)
+      // clear files only after successful send to backend
+      setAttached([])
+      const ai: Message = {
+        id: String(Date.now() + 1),
+        type: 'assistant',
+        content: data.response,
+        timestamp: new Date(),
+        category: data.category ?? (mode === 'mental' ? 'mental' : 'general'),
+      }
+      if (typeof data.online === 'boolean') setOnline(data.online)
+      if (data.model) setLastModel(data.model)
+      setThreads(prev => ({ ...prev, [mode]: [...prev[mode], ai] }))
+    } catch {
+      const fallback = language === 'my'
+        ? 'တောင်းပန်ပါတယ်၊ အမှားအယွင်းတစ်ခု ဖြစ်ခဲ့သည်။ ပြန်လည်ကြိုးစားပါ။'
+        : 'I’m sorry, something went wrong. Please try again.'
+      const ai: Message = {
+        id: String(Date.now()+1),
+        type: 'assistant',
+        content: fallback,
+        timestamp: new Date(),
+        category: mode==='mental' ? 'mental' : 'general'
+      }
+      setThreads(prev => ({ ...prev, [mode]: [...prev[mode], ai] }))
+    } finally {
       setIsTyping(false)
-    }, 1500)
-  }
-
-  const handleQuickAction = (action: QuickAction) => {
-    setInputMessage(action.prompt)
-    handleSendMessage()
-  }
-
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSendMessage()
     }
   }
 
-  const toggleVoiceInput = () => {
-    if (!isListening) {
-      setIsListening(true)
-      // Simulate voice recognition
-      setTimeout(() => {
-        setInputMessage('What should I do during an earthquake?')
-        setIsListening(false)
-      }, 2000)
-    } else {
-      setIsListening(false)
-    }
-  }
+  const headerColor = mode === 'mental' ? 'bg-teal-600' : 'bg-blue-600'
+  const buttonColor = mode === 'mental' ? 'bg-teal-600 hover:bg-teal-700' : 'bg-blue-600 hover:bg-blue-700'
 
-  const getCategoryColor = (category?: string) => {
-    switch (category) {
+  const getCategoryColor = (c?: ChatCategory) => {
+    switch (c) {
       case 'safety': return 'bg-blue-100 text-blue-800'
       case 'emergency': return 'bg-red-100 text-red-800'
       case 'location': return 'bg-green-100 text-green-800'
       case 'medical': return 'bg-purple-100 text-purple-800'
+      case 'mental': return 'bg-teal-100 text-teal-800'
       default: return 'bg-gray-100 text-gray-800'
     }
   }
 
+  // launcher button
   if (!isOpen) {
     return (
-      <div className="fixed bottom-4 right-4 z-50">
-        <Button
-          onClick={() => setIsOpen(true)}
-          className="bg-blue-600 hover:bg-blue-700 text-white rounded-full p-4 shadow-lg"
-        >
+      <div className="fixed bottom-4 right-4 z-[9999]">
+        <Button onClick={() => setIsOpen(true)} className={`${buttonColor} text-white rounded-full p-4 shadow-lg`} aria-label="Open Assistant">
           <MessageCircle className="w-6 h-6" />
         </Button>
       </div>
     )
   }
 
+  const connectionDot =
+    <div className="flex items-center gap-2">
+      <div
+        className={`w-2.5 h-2.5 rounded-full ${online === null ? 'bg-yellow-300' : online ? 'bg-green-400' : 'bg-gray-400'}`}
+        title={online === null ? 'Status: unknown' : online ? `Online (${lastModel ?? 'Groq/Ollama'})` : 'Offline (Ollama/local)'}
+      />
+      <span className="text-[11px] opacity-90">
+        {online === null ? 'Checking…' : online ? 'Online' : 'Offline'}
+      </span>
+    </div>
+
   return (
-    <div className="fixed bottom-4 right-4 z-50 w-96 h-[600px] bg-white rounded-lg shadow-2xl flex flex-col">
+    <div className="fixed bottom-4 right-4 z-[9999] w-96 h-[600px] bg-white rounded-lg shadow-2xl flex flex-col min-h-0">
       {/* Header */}
-      <div className="bg-blue-600 text-white p-4 rounded-t-lg flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Bot className="w-5 h-5" />
-          <div>
-            <h3 className="font-semibold">AI Assistant</h3>
-            <p className="text-xs opacity-90">
-              {language === 'en' ? 'Earthquake Safety & Emergency' : 'ငလျင်လုံခြုံရေးနှင့် အရေးပေါ်'}
-            </p>
+      <div className={`${headerColor} text-white p-4 rounded-t-lg`}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            {mode === 'mental' ? <Brain className="w-5 h-5" /> : <Bot className="w-5 h-5" />}
+            <h3 className="font-semibold">{mode === 'mental' ? 'Mental Support' : 'AI Assistant'}</h3>
+          </div>
+          <div className="flex items-center gap-3">
+            {connectionDot}
+            <Button variant="ghost" size="sm" onClick={() => setIsOpen(false)} className="text-white hover:bg-white/10 p-1" aria-label="Close">×</Button>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+
+        {/* Mode switch */}
+        <div className="mt-3 flex gap-2">
           <Button
-            variant="ghost"
             size="sm"
-            onClick={() => setIsOpen(false)}
-            className="text-white hover:bg-blue-700 p-1"
+            onClick={() => setMode('emergency')}
+            className={[
+              'px-3',
+              mode === 'emergency'
+                ? 'bg-white text-blue-700'
+                : 'bg-transparent text-white border border-white/50 hover:bg-white/10'
+            ].join(' ')}
           >
-            ×
+            <Bot className="w-4 h-4 mr-1" />
+            Assistant
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => setMode('mental')}
+            className={[
+              'px-3',
+              mode === 'mental'
+                ? 'bg-white text-teal-700'
+                : 'bg-transparent text-white border border-white/50 hover:bg-white/10'
+            ].join(' ')}
+          >
+            <Brain className="w-4 h-4 mr-1" />
+            Mental
           </Button>
         </div>
       </div>
 
-      {/* Quick Actions */}
+      {/* Quick actions */}
       <div className="p-3 border-b bg-gray-50">
         <div className="flex gap-2 overflow-x-auto">
-          {quickActions.map((action) => (
-            <Button
-              key={action.id}
-              variant="outline"
-              size="sm"
-              onClick={() => handleQuickAction(action)}
-              className="flex items-center gap-1 whitespace-nowrap text-xs"
-            >
-              {action.icon}
-              {action.label}
+          {(mode === 'mental' ? QA_MENTAL : QA_EMERGENCY).map(a => (
+            <Button key={a.id} variant="outline" size="sm" onClick={() => send(a.prompt)} className="flex items-center gap-1 whitespace-nowrap text-xs">
+              {a.icon}{a.label}
             </Button>
           ))}
         </div>
       </div>
 
       {/* Messages */}
-      <ScrollArea className="flex-1 p-4">
+      <div className="flex-1 p-4 overflow-y-auto">
         <div className="space-y-4">
-          {messages.map((message) => (
-            <div
-              key={message.id}
-              className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}
-            >
-              <div
-                className={`max-w-[80%] rounded-lg p-3 ${
-                  message.type === 'user'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-100 text-gray-900'
-                }`}
-              >
+          {currentMessages.map(m => (
+            <div key={m.id} className={`flex ${m.type === 'user' ? 'justify-end' : 'justify-start'}`}>
+              <div className={`max-w-[80%] rounded-lg p-3 ${m.type === 'user'
+                ? (mode === 'mental' ? 'bg-teal-600 text-white' : 'bg-blue-600 text-white')
+                : 'bg-gray-100 text-gray-900'}`}>
                 <div className="flex items-start gap-2">
-                  {message.type === 'assistant' && (
-                    <Bot className="w-4 h-4 mt-1 flex-shrink-0" />
-                  )}
-                  {message.type === 'user' && (
-                    <User className="w-4 h-4 mt-1 flex-shrink-0" />
-                  )}
+                  {m.type === 'assistant'
+                    ? (mode === 'mental' ? <Brain className="w-4 h-4 mt-1" /> : <Bot className="w-4 h-4 mt-1" />)
+                    : <User className="w-4 h-4 mt-1" />}
                   <div className="flex-1">
-                    <p className="text-sm">{message.content}</p>
+                    <p className="text-sm whitespace-pre-wrap break-words">{m.content}</p>
                     <div className="flex items-center gap-2 mt-2">
-                      <span className="text-xs opacity-70">
-                        {message.timestamp.toLocaleTimeString()}
-                      </span>
-                      {message.category && message.type === 'assistant' && (
-                        <Badge className={`text-xs ${getCategoryColor(message.category)}`}>
-                          {message.category}
-                        </Badge>
+                      <span className="text-xs opacity-70">{formatTime(m.timestamp)}</span>
+                      {m.category && m.type === 'assistant' && (
+                        <Badge className={`text-xs ${getCategoryColor(m.category)}`}>{m.category}</Badge>
                       )}
                     </div>
                   </div>
@@ -295,61 +385,92 @@ export default function AIChatAssistant() {
               </div>
             </div>
           ))}
-          
-          {isTyping && (
-            <div className="flex justify-start">
-              <div className="bg-gray-100 text-gray-900 rounded-lg p-3">
-                <div className="flex items-center gap-2">
-                  <Bot className="w-4 h-4" />
-                  <div className="flex gap-1">
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" />
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
+
+          {/* Attachments preview row */}
+          {attached.length > 0 && (
+            <div className="px-1">
+              <div className="flex flex-wrap gap-2">
+                {attached.map((f, i) => (
+                  <div key={i} className="flex items-center gap-2 border rounded-md px-2 py-1 text-xs bg-gray-50">
+                    <span className="max-w-[160px] truncate">{f.name}</span>
+                    <button
+                      onClick={() => removeFile(i)}
+                      className="text-gray-500 hover:text-red-600"
+                      aria-label="Remove file"
+                      type="button"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
                   </div>
-                </div>
+                ))}
               </div>
             </div>
           )}
+
+          {isTyping && <div className="text-xs text-gray-500">typing…</div>}
           <div ref={messagesEndRef} />
         </div>
-      </ScrollArea>
+      </div>
 
       {/* Input */}
       <div className="p-4 border-t">
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+          {/* Attach button */}
+          <label className="inline-flex items-center justify-center border rounded-md px-2 h-9 cursor-pointer hover:bg-gray-50">
+            <Paperclip className="w-4 h-4" />
+            <input
+              type="file"
+              accept="image/*,.pdf,.docx,.txt"
+              multiple
+              className="hidden"
+              onChange={onPickFiles}
+            />
+          </label>
+
           <Button
             variant="outline"
             size="sm"
-            onClick={toggleVoiceInput}
+            onClick={() => setIsListening(v => !v)}
             className={`p-2 ${isListening ? 'bg-red-100 text-red-600' : ''}`}
           >
             {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
           </Button>
+
           <Input
             value={inputMessage}
-            onChange={(e) => setInputMessage(e.target.value)}
-            onKeyPress={handleKeyPress}
+            onChange={e => setInputMessage(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
             placeholder={
-              language === 'en'
-                ? 'Ask about earthquake safety, shelters, first aid...'
-                : 'ငလျင်လုံခြုံရေး၊ ခိုလှုံရာများ၊ ပထမအကူအညီအကြောင်း မေးပါ...'
+              awaitingLocation
+                ? (language === 'en' ? 'Type your city/township (e.g., Hlaing)…' : 'သင့်မြို့/မြို့နယ်ကို ရိုက်ထည့်ပါ…')
+                : mode === 'mental'
+                  ? (language === 'en'
+                      ? 'Share how you feel or attach a note/photo…'
+                      : 'မည်သို့ ခံစားနေလဲ? မှတ်စု/ဓာတ်ပုံ တင်ပို့နိုင်သည်…')
+                  : (language === 'en'
+                      ? 'Ask about safety, shelters, first aid… You can attach photo/PDF/DOCX/TXT.'
+                      : 'လုံခြုံရေး/ခိုလုံရာ… ဖိုင်/ဓာတ်ပုံ တင်နိုင်သည်။')
             }
             className="flex-1"
             disabled={isTyping}
           />
           <Button
-            onClick={handleSendMessage}
-            disabled={!inputMessage.trim() || isTyping}
-            className="bg-blue-600 hover:bg-blue-700"
+            onClick={() => send()}
+            disabled={( !inputMessage.trim() && attached.length === 0 ) || isTyping}
+            className={buttonColor}
           >
             <Send className="w-4 h-4" />
           </Button>
         </div>
-        
-        <div className="mt-2 text-xs text-gray-500 text-center">
-          {language === 'en'
-            ? 'For real emergencies, call 199 immediately'
-            : 'အရေးပေါ်အခြေအနေများအတွက် 199 ကို ချက်ချင်းခေါ်ပါ'}
+
+        <div className="mt-2 text-[11px] text-gray-500 text-center">
+          {mode === 'mental'
+            ? (language === 'en'
+                ? "If you're in immediate danger or thinking about self-harm, call 199 now."
+                : 'အရေးပေါ် အန္တရာယ်/ကိုယ်ပိုင်အန္တရာယ် စိုးရိမ်ပါက ယခု 199 ကို ခေါ်ပါ။')
+            : (language === 'en'
+                ? 'For real emergencies, call 199 immediately'
+                : 'အရေးပေါ်ဖြစ်ပါက 199 ကို ချက်ချင်းခေါ်ပါ')}
         </div>
       </div>
     </div>

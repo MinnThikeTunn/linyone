@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import {
   Card,
   CardContent,
@@ -81,15 +81,6 @@ import {
 import { useLanguage } from "@/hooks/use-language";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
-import {
-  validateName,
-  validateEmail,
-  validatePhone,
-  validatePassword,
-  validateLength,
-  validateEnum,
-} from "@/lib/validation";
-import { AlertCircle } from "lucide-react";
 
 interface Organization {
   id: string;
@@ -162,7 +153,6 @@ export default function AdminPage() {
   const [deleteOrgDialogOpen, setDeleteOrgDialogOpen] = useState(false);
   const [deleteUserDialogOpen, setDeleteUserDialogOpen] = useState(false);
   const [editUserDialogOpen, setEditUserDialogOpen] = useState(false);
-  const [orgErrors, setOrgErrors] = useState<Record<string, string>>({});
 
   // Redirect non-admin users
   useEffect(() => {
@@ -313,100 +303,9 @@ export default function AdminPage() {
     setLoading(false);
   };
 
-  // Organization form validators
-  const validateOrgNameField = () => {
-    const result = validateName(newOrg.name, 'Organization Name');
-    if (!result.valid) {
-      setOrgErrors(prev => ({ ...prev, name: result.error || 'Invalid organization name' }));
-      return false;
-    }
-    setOrgErrors(prev => ({ ...prev, name: '' }));
-    return true;
-  };
-
-  const validateOrgEmailField = () => {
-    const result = validateEmail(newOrg.email);
-    if (!result.valid) {
-      setOrgErrors(prev => ({ ...prev, email: result.error || 'Invalid email' }));
-      return false;
-    }
-    setOrgErrors(prev => ({ ...prev, email: '' }));
-    return true;
-  };
-
-  const validateOrgPhoneField = () => {
-    const result = validatePhone(newOrg.phone);
-    if (!result.valid) {
-      setOrgErrors(prev => ({ ...prev, phone: result.error || 'Invalid phone number' }));
-      return false;
-    }
-    setOrgErrors(prev => ({ ...prev, phone: '' }));
-    return true;
-  };
-
-  const validateOrgPasswordField = () => {
-    if (!newOrg.password) {
-      setOrgErrors(prev => ({ ...prev, password: '' }));
-      return true; // Optional field
-    }
-    const result = validatePassword(newOrg.password);
-    if (!result.valid) {
-      setOrgErrors(prev => ({ ...prev, password: result.error || 'Invalid password' }));
-      return false;
-    }
-    setOrgErrors(prev => ({ ...prev, password: '' }));
-    return true;
-  };
-
-  const validateOrgRegionField = () => {
-    if (!newOrg.region) {
-      setOrgErrors(prev => ({ ...prev, region: 'Region is required' }));
-      return false;
-    }
-    setOrgErrors(prev => ({ ...prev, region: '' }));
-    return true;
-  };
-
-  const validateOrgAddressField = () => {
-    if (newOrg.address && newOrg.address.trim().length < 5) {
-      setOrgErrors(prev => ({ ...prev, address: 'Address must be at least 5 characters' }));
-      return false;
-    }
-    if (newOrg.address && newOrg.address.length > 200) {
-      setOrgErrors(prev => ({ ...prev, address: 'Address is too long (max 200 characters)' }));
-      return false;
-    }
-    setOrgErrors(prev => ({ ...prev, address: '' }));
-    return true;
-  };
-
-  // Check if organization form is valid
-  const isOrgFormValid = useMemo(() => {
-    return (
-      newOrg.name.trim().length > 0 &&
-      !orgErrors.name &&
-      newOrg.email.trim().length > 0 &&
-      !orgErrors.email &&
-      newOrg.phone.trim().length > 0 &&
-      !orgErrors.phone &&
-      !orgErrors.password &&
-      newOrg.region.trim().length > 0 &&
-      !orgErrors.region &&
-      !orgErrors.address
-    );
-  }, [newOrg.name, newOrg.email, newOrg.phone, newOrg.password, newOrg.region, newOrg.address, orgErrors]);
-
   const handleRegisterOrganization = async () => {
-    // Validate all fields
-    if (
-      !validateOrgNameField() ||
-      !validateOrgEmailField() ||
-      !validateOrgPhoneField() ||
-      !validateOrgPasswordField() ||
-      !validateOrgRegionField() ||
-      !validateOrgAddressField()
-    ) {
-      alert('Please fix validation errors before submitting');
+    if (!newOrg.name || !newOrg.email || !newOrg.phone || !newOrg.region) {
+      alert(t('admin.fillRequired'));
       return;
     }
 
@@ -1752,128 +1651,78 @@ export default function AdminPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-4">
                     <div>
-                      <Label htmlFor="org-name" className={orgErrors.name ? 'text-red-600' : ''}>
-                        Organization Name *
-                      </Label>
+                      <Label htmlFor="org-name">Organization Name *</Label>
                       <Input
                         id="org-name"
                         value={newOrg.name}
-                        onChange={(e) => {
+                        onChange={(e) =>
                           setNewOrg((prev) => ({
                             ...prev,
                             name: e.target.value,
-                          }));
-                          if (orgErrors.name) setOrgErrors(prev => ({ ...prev, name: '' }));
-                        }}
-                        onBlur={validateOrgNameField}
+                          }))
+                        }
                         placeholder="Enter organization name"
-                        className={orgErrors.name ? 'border-red-500 focus:border-red-500' : ''}
                       />
-                      {orgErrors.name && (
-                        <div className="flex items-center gap-1 mt-1 text-sm text-red-600">
-                          <AlertCircle className="w-4 h-4" />
-                          {orgErrors.name}
-                        </div>
-                      )}
                     </div>
 
                     <div>
-                      <Label htmlFor="org-email" className={orgErrors.email ? 'text-red-600' : ''}>
-                        Email *
-                      </Label>
+                      <Label htmlFor="org-email">Email *</Label>
                       <Input
                         id="org-email"
                         type="email"
                         value={newOrg.email}
-                        onChange={(e) => {
+                        onChange={(e) =>
                           setNewOrg((prev) => ({
                             ...prev,
                             email: e.target.value,
-                          }));
-                          if (orgErrors.email) setOrgErrors(prev => ({ ...prev, email: '' }));
-                        }}
-                        onBlur={validateOrgEmailField}
+                          }))
+                        }
                         placeholder="Enter email address"
-                        className={orgErrors.email ? 'border-red-500 focus:border-red-500' : ''}
                       />
-                      {orgErrors.email && (
-                        <div className="flex items-center gap-1 mt-1 text-sm text-red-600">
-                          <AlertCircle className="w-4 h-4" />
-                          {orgErrors.email}
-                        </div>
-                      )}
                     </div>
 
                     <div>
-                      <Label htmlFor="org-phone" className={orgErrors.phone ? 'text-red-600' : ''}>
-                        Phone *
-                      </Label>
+                      <Label htmlFor="org-phone">Phone *</Label>
                       <Input
                         id="org-phone"
                         value={newOrg.phone}
-                        onChange={(e) => {
+                        onChange={(e) =>
                           setNewOrg((prev) => ({
                             ...prev,
                             phone: e.target.value,
-                          }));
-                          if (orgErrors.phone) setOrgErrors(prev => ({ ...prev, phone: '' }));
-                        }}
-                        onBlur={validateOrgPhoneField}
+                          }))
+                        }
                         placeholder="Enter phone number"
-                        className={orgErrors.phone ? 'border-red-500 focus:border-red-500' : ''}
                       />
-                      {orgErrors.phone && (
-                        <div className="flex items-center gap-1 mt-1 text-sm text-red-600">
-                          <AlertCircle className="w-4 h-4" />
-                          {orgErrors.phone}
-                        </div>
-                      )}
                     </div>
 
                     <div>
-                      <Label htmlFor="org-password" className={orgErrors.password ? 'text-red-600' : ''}>
-                        Password (Optional - Leave blank to send default)
-                      </Label>
+                      <Label htmlFor="org-password">Password</Label>
                       <Input
                         id="org-password"
                         type="password"
                         value={newOrg.password}
-                        onChange={(e) => {
+                        onChange={(e) =>
                           setNewOrg((prev) => ({
                             ...prev,
                             password: e.target.value,
-                          }));
-                          if (orgErrors.password) setOrgErrors(prev => ({ ...prev, password: '' }));
-                        }}
-                        onBlur={validateOrgPasswordField}
-                        placeholder="Min 8 chars: uppercase, lowercase, number, special char (!@#$%^&*)"
-                        className={orgErrors.password ? 'border-red-500 focus:border-red-500' : ''}
+                          }))
+                        }
+                        placeholder="Enter password"
                       />
-                      {orgErrors.password && (
-                        <div className="flex items-center gap-1 mt-1 text-sm text-red-600">
-                          <AlertCircle className="w-4 h-4" />
-                          {orgErrors.password}
-                        </div>
-                      )}
-                      <p className="text-xs text-gray-500 mt-1">
-                        Requirements: 8+ characters, uppercase, lowercase, number, special character
-                      </p>
                     </div>
                   </div>
 
                   <div className="space-y-4">
                     <div>
-                      <Label htmlFor="org-region" className={orgErrors.region ? 'text-red-600' : ''}>
-                        Region *
-                      </Label>
+                      <Label htmlFor="org-region">Region *</Label>
                       <Select
                         value={newOrg.region}
-                        onValueChange={(value) => {
-                          setNewOrg((prev) => ({ ...prev, region: value }));
-                          if (orgErrors.region) setOrgErrors(prev => ({ ...prev, region: '' }));
-                        }}
+                        onValueChange={(value) =>
+                          setNewOrg((prev) => ({ ...prev, region: value }))
+                        }
                       >
-                        <SelectTrigger className={orgErrors.region ? 'border-red-500' : ''}>
+                        <SelectTrigger>
                           <SelectValue placeholder="Select region" />
                         </SelectTrigger>
                         <SelectContent>
@@ -1896,12 +1745,6 @@ export default function AdminPage() {
                           <SelectItem value="Shan">Shan</SelectItem>
                         </SelectContent>
                       </Select>
-                      {orgErrors.region && (
-                        <div className="flex items-center gap-1 mt-1 text-sm text-red-600">
-                          <AlertCircle className="w-4 h-4" />
-                          {orgErrors.region}
-                        </div>
-                      )}
                     </div>
 
                     
@@ -1909,54 +1752,36 @@ export default function AdminPage() {
                       <Label htmlFor="org-funding">Funding</Label>
                       <Input
                         id="org-funding"
-                        type="number"
                         value={newOrg.funding}
-                        onChange={(e) => {
-                          const value = e.target.value;
-                          if (value === '' || /^\d+$/.test(value)) {
-                            setNewOrg((prev) => ({
-                              ...prev,
-                              funding: value,
-                            }));
-                          }
-                        }}
-                        placeholder="Enter funding amount (numbers only)"
+                        onChange={(e) =>
+                          setNewOrg((prev) => ({
+                            ...prev,
+                            funding: e.target.value,
+                          }))
+                        }
+                        placeholder="Enter funding amount"
                       />
                     </div>
 
                     <div>
-                      <Label htmlFor="org-address" className={orgErrors.address ? 'text-red-600' : ''}>
-                        Address
-                      </Label>
+                      <Label htmlFor="org-address">Address</Label>
                       <Input
                         id="org-address"
                         value={newOrg.address}
-                        onChange={(e) => {
+                        onChange={(e) =>
                           setNewOrg((prev) => ({
                             ...prev,
                             address: e.target.value,
-                          }));
-                          if (orgErrors.address) setOrgErrors(prev => ({ ...prev, address: '' }));
-                        }}
-                        onBlur={validateOrgAddressField}
-                        placeholder="Enter organization address (5-200 characters)"
-                        className={orgErrors.address ? 'border-red-500 focus:border-red-500' : ''}
+                          }))
+                        }
+                        placeholder="Enter organization address"
                       />
-                      {orgErrors.address && (
-                        <div className="flex items-center gap-1 mt-1 text-sm text-red-600">
-                          <AlertCircle className="w-4 h-4" />
-                          {orgErrors.address}
-                        </div>
-                      )}
                     </div>
                   </div>
                 </div>
 
                 <div className="flex gap-2 mt-6">
-                  <Button 
-                    onClick={handleRegisterOrganization}
-                    disabled={!isOrgFormValid}
-                  >
+                  <Button onClick={handleRegisterOrganization}>
                     <Plus className="w-4 h-4 mr-2" />
                     {t("admin.registerOrg")}
                   </Button>

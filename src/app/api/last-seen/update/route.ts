@@ -25,6 +25,26 @@ export async function POST(req: NextRequest) {
     } catch {}
 
     const supabase = createServerClient()
+    
+    // First, ensure the user exists in the users table
+    const { data: existingUser } = await supabase
+      .from('users')
+      .select('id')
+      .eq('id', userId)
+      .maybeSingle()
+
+    // If user doesn't exist, create a minimal user record
+    if (!existingUser) {
+      const { error: insertError } = await supabase
+        .from('users')
+        .insert({ id: userId })
+      
+      if (insertError) {
+        console.error('[last-seen] user insert error', insertError)
+        // If insert fails, user might already exist due to race condition - continue
+      }
+    }
+    
     // Upsert last seen
     const { error } = await supabase
       .from('user_last_seen')
