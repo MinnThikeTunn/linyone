@@ -10,7 +10,7 @@ import { NotificationToasts } from "@/components/notification-toasts";
 import { LiveAlerts } from "@/components/alerts/live-alerts";
 import DisasterToasts from "@/components/alerts/disaster-toasts";
 import LastSeenUpdater from "@/components/last-seen-updater";
-import  AIChatAssistant  from "@/components/ai-chat";
+import AIChatWrapper from "@/components/ai-chat-wrapper";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -47,7 +47,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <Toaster />
 
             {/* Single floating assistant with Assistant/Mental tabs */}
-            <AIChatAssistant />
+            <AIChatWrapper />
             <AlertToToastBridge />
             <NotificationToasts />
             <DisasterToasts />
