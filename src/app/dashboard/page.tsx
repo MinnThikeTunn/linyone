@@ -1,7 +1,7 @@
 "use client";
 
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -31,7 +31,6 @@ import {
   Droplets,
   Wind
 } from 'lucide-react'
-import Link from 'next/link'
 import { useLanguage } from '@/hooks/use-language'
 import { useAuth } from '@/hooks/use-auth'
 import FamilyTab from '@/components/family-tab'
@@ -53,14 +52,15 @@ interface FamilyMember {
 }
 
 interface SafetyModule {
-  id: string
-  title: string
-  description: string
-  category: string
-  duration: string
-  progress: number
-  badge?: string
-  icon: React.ReactNode
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+  icon: React.ReactNode;
+  point?: number;
+  videoUrl?: string;
+  quiz?: { question: string; options: string[]; answer: string }[];
+  qna?: { question: string; answer: string }[];
 }
 
 interface AlertItem {
@@ -102,55 +102,6 @@ const mockFamilyMembers: FamilyMember[] = [
     lastSeen: new Date(Date.now() - 15 * 60 * 1000),
     status: 'safe',
     location: { lat: 16.8509, lng: 96.1835, address: 'Mandalay, Myanmar' }
-  }
-]
-
-const mockSafetyModules: SafetyModule[] = [
-  {
-    id: '1',
-    title: 'CPR Training',
-    description: 'Learn life-saving cardiopulmonary resuscitation techniques',
-    category: 'First Aid',
-    duration: '15 min',
-    progress: 0,
-    badge: 'CPR Certified',
-    icon: <Heart className="w-6 h-6 text-red-500" />
-  },
-  {
-    id: '2',
-    title: 'First Aid Basics',
-    description: 'Essential first aid skills for emergency situations',
-    category: 'First Aid',
-    duration: '20 min',
-    progress: 0,
-    icon: <Shield className="w-6 h-6 text-blue-500" />
-  },
-  {
-    id: '3',
-    title: 'Earthquake Safety',
-    description: 'What to do before, during, and after an earthquake',
-    category: 'Emergency',
-    duration: '10 min',
-    progress: 0,
-    icon: <AlertTriangle className="w-6 h-6 text-orange-500" />
-  },
-  {
-    id: '4',
-    title: 'Emergency Preparedness',
-    description: 'How to prepare your family and home for disasters',
-    category: 'Preparedness',
-    duration: '25 min',
-    progress: 0,
-    icon: <Settings className="w-6 h-6 text-green-500" />
-  },
-  {
-    id: '5',
-    title: 'Advanced Rescue Techniques',
-    description: 'Professional rescue methods for volunteers',
-    category: 'Advanced',
-    duration: '45 min',
-    progress: 0,
-    icon: <Shield className="w-6 h-6 text-purple-500" />
   }
 ]
 
@@ -203,13 +154,35 @@ export default function DashboardPage() {
     phone: "",
     uniqueId: "",
   });
-  const [emergencyKitStatus, setEmergencyKitStatus] = useState(75);
+  const [emergencyKitStatus, setEmergencyKitStatus] = useState(0);
+
+  // Calculate emergency kit percentage from localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('emergencyKitItems')
+      if (stored) {
+        try {
+          const items = JSON.parse(stored)
+          const totalItems = Object.keys(items).length
+          const checkedItems = Object.values(items).filter(Boolean).length
+          const percentage = Math.round((checkedItems / totalItems) * 100)
+          setEmergencyKitStatus(percentage)
+        } catch (e) {
+          console.error('Failed to calculate emergency kit status:', e)
+          setEmergencyKitStatus(0)
+        }
+      } else {
+        setEmergencyKitStatus(0)
+      }
+    }
+  }, [pathname]) // Recalculate when navigating back to dashboard
 
   // Load completed modules from sessionStorage (resets on page refresh)
   const loadCompletedModules = () => {
     if (typeof window !== 'undefined') {
       const completed = JSON.parse(sessionStorage.getItem('completedModules') || '[]')
       setCompletedModuleIds(completed)
+      console.log('Loaded completed modules:', completed)
       
       // Update module progress based on completion
       setSafetyModules(modules => modules.map(module => 
@@ -221,12 +194,8 @@ export default function DashboardPage() {
   }
 
   useEffect(() => {
-    // Clear completed modules on page load/refresh
-    if (typeof window !== 'undefined') {
-      sessionStorage.removeItem('completedModules')
-      setCompletedModuleIds([])
-      setSafetyModules(mockSafetyModules)
-    }
+    // Load completed modules on page load
+    loadCompletedModules()
   }, [])
 
   // Load completed modules when navigating back from lesson
@@ -339,7 +308,6 @@ export default function DashboardPage() {
     }
   };
 
-  const completedModules = safetyModules.filter(m => m.progress === 100).length
   // Load family members for current user and subscribe to changes
   useEffect(() => {
     let channel: any;
@@ -427,6 +395,22 @@ export default function DashboardPage() {
   }, [user?.id])
 
   const safeFamilyMembers = familyMembers.filter((m) => m.status === "safe").length;
+  
+  // Calculate completed modules and total points with useMemo
+  const completedModulesCount = useMemo(() => {
+    console.log('Calculating modules count:', completedModuleIds.length, completedModuleIds)
+    return completedModuleIds.length
+  }, [completedModuleIds]);
+  
+  const totalPointsCollected = useMemo(() => {
+    // Read points from localStorage instead of calculating from modules
+    if (typeof window !== 'undefined') {
+      const points = parseInt(localStorage.getItem('safetyPoints') || '0')
+      console.log('Total points from localStorage:', points)
+      return points
+    }
+    return 0
+  }, [completedModuleIds]); // Re-calculate when modules change
 
   // if (!isAuthenticated) {
   //   return (
@@ -488,9 +472,9 @@ export default function DashboardPage() {
                   <p className="text-sm font-medium text-gray-600">
                     Modules Completed
                   </p>
-                  {/* <p className="text-2xl font-bold text-blue-600">
-                    {completedModules}/{safetyModules.length}
-                  </p> */}
+                  <p className="text-2xl font-bold text-blue-600">
+                    {completedModulesCount}/{safetyModules.length}
+                  </p>
                 </div>
                 <BookOpen className="w-8 h-8 text-blue-600" />
               </div>
@@ -518,11 +502,11 @@ export default function DashboardPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-gray-600">
-                    Badges Earned
+                    Points Collected
                   </p>
-                  {/* <p className="text-2xl font-bold text-purple-600">
-                    {completedModules}
-                  </p> */}
+                  <p className="text-2xl font-bold text-purple-600">
+                    {totalPointsCollected}
+                  </p>
                 </div>
                 <Award className="w-8 h-8 text-purple-600" />
               </div>
@@ -591,25 +575,16 @@ export default function DashboardPage() {
                           <div className="flex-1">
                             <h3 className="font-medium flex items-center gap-2">
                               {module.title}
-                              {module.badge && <Badge variant="secondary">{module.badge}</Badge>}
                             </h3>
-                            <p className="text-sm text-gray-600 mt-1">{module.description}</p>
+
+                            <p className="text-sm text-gray-600 mt-1">
+                              {module.description}
+                            </p>
+
                             <div className="flex items-center gap-2 mt-2 text-xs text-gray-500">
                               <span>{module.category}</span>
-                              <span>•</span>
-                              <span>{module.duration}</span>
                             </div>
-                            
-                            {module.progress === 100 && (
-                              <div className="mt-3">
-                                <div className="flex justify-between text-xs mb-1">
-                                  <span>{t('safety.progress')}</span>
-                                  <span>{module.progress}%</span>
-                                </div>
-                                <Progress value={module.progress} className="h-2" />
-                              </div>
-                            )}
-                            
+
                             <div className="mt-3">
                               {completedModuleIds.includes(module.id) ? (
                                 <Button size="sm" onClick={() => handleStartModule(module.id)} className="w-full" variant="outline">
