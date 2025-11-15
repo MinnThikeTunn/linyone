@@ -15,6 +15,12 @@ import { askChat } from '@/lib/chat'
 import type { ChatCategory, AssistantKind } from '@/lib/chat'
 import { useSearchParams } from 'next/navigation'
 import { findContactsNear, loadContacts, type EmergencyContact } from '@/lib/contacts'
+import ReactMarkdown from 'react-markdown'
+// note: avoid optional remark plugin to prevent missing-dependency errors in some environments
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
+import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import { Maximize2, Copy, ExternalLink } from 'lucide-react'
 
 type MsgType = 'user' | 'assistant'
 interface Message { id: string; type: MsgType; content: string; timestamp: Date; category?: ChatCategory }
@@ -78,6 +84,9 @@ export default function AIChatAssistant({ initialOpen = false }: { initialOpen?:
   const [isTyping, setIsTyping] = useState(false)
   const [isListening, setIsListening] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const [modalOpen, setModalOpen] = useState(false)
+  const [modalMessage, setModalMessage] = useState<Message | null>(null)
+  const recognitionRef = useRef<any>(null)
 
   useEffect(() => {
     setThreads({
@@ -267,6 +276,66 @@ export default function AIChatAssistant({ initialOpen = false }: { initialOpen?:
     }
   }
 
+  // Speech recognition (browser) - start/stop when isListening changes
+  useEffect(() => {
+    if (!isListening) {
+      // stop any ongoing recognition
+      if (recognitionRef.current) {
+        try { recognitionRef.current.stop() } catch {}
+        recognitionRef.current = null
+      }
+      return
+    }
+
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    if (!SpeechRecognition) {
+      // Not supported
+      console.warn('SpeechRecognition not supported in this browser')
+      setIsListening(false)
+      return
+    }
+
+    const rec = new SpeechRecognition()
+    rec.lang = language === 'en' ? 'en-US' : 'en-US'
+    rec.interimResults = true
+    rec.maxAlternatives = 1
+
+    let finalTranscript = ''
+
+    rec.onresult = (ev: any) => {
+      let interim = ''
+      for (let i = ev.resultIndex; i < ev.results.length; ++i) {
+        const res = ev.results[i]
+        if (res.isFinal) finalTranscript += res[0].transcript
+        else interim += res[0].transcript
+      }
+      setInputMessage((prev) => (finalTranscript || interim).trim())
+    }
+
+    rec.onend = () => {
+      setIsListening(false)
+      if (finalTranscript.trim()) {
+        // send the transcribed text automatically
+        send(finalTranscript.trim())
+      }
+      recognitionRef.current = null
+    }
+
+    rec.onerror = (e: any) => {
+      console.error('Speech recognition error', e)
+      setIsListening(false)
+      recognitionRef.current = null
+    }
+
+    recognitionRef.current = rec
+    try { rec.start() } catch (e) { console.error(e); setIsListening(false) }
+
+    return () => {
+      try { rec.stop() } catch {}
+      recognitionRef.current = null
+    }
+  }, [isListening, language])
+
   const headerColor = mode === 'mental' ? 'bg-teal-600' : 'bg-blue-600'
   const buttonColor = mode === 'mental' ? 'bg-teal-600 hover:bg-teal-700' : 'bg-blue-600 hover:bg-blue-700'
 
@@ -284,9 +353,9 @@ export default function AIChatAssistant({ initialOpen = false }: { initialOpen?:
   // launcher button
   if (!isOpen) {
     return (
-      <div className="fixed bottom-4 right-4 z-[9999]">
-        <Button onClick={() => setIsOpen(true)} className={`${buttonColor} text-white rounded-full p-4 shadow-lg`} aria-label="Open Assistant">
-          <MessageCircle className="w-6 h-6" />
+      <div className="fixed bottom-3 right-3 sm:bottom-4 sm:right-4 z-9999 pointer-events-auto">
+        <Button onClick={() => setIsOpen(true)} className={`${buttonColor} text-white rounded-full p-4 sm:p-5 shadow-lg`} aria-label="Open Assistant">
+          <MessageCircle className="w-7 h-7 sm:w-8 sm:h-8" />
         </Button>
       </div>
     )
@@ -304,7 +373,7 @@ export default function AIChatAssistant({ initialOpen = false }: { initialOpen?:
     </div>
 
   return (
-    <div className="fixed bottom-4 right-4 z-[9999] w-96 h-[600px] bg-white rounded-lg shadow-2xl flex flex-col min-h-0">
+    <div className="fixed bottom-0 right-0 sm:bottom-4 sm:right-4 z-9999 sm:w-96 w-full sm:h-[600px] h-[72vh] bg-white rounded-t-lg sm:rounded-lg shadow-2xl flex flex-col min-h-0">
       {/* Header */}
       <div className={`${headerColor} text-white p-4 rounded-t-lg`}>
         <div className="flex items-center justify-between">
@@ -373,7 +442,51 @@ export default function AIChatAssistant({ initialOpen = false }: { initialOpen?:
                     ? (mode === 'mental' ? <Brain className="w-4 h-4 mt-1" /> : <Bot className="w-4 h-4 mt-1" />)
                     : <User className="w-4 h-4 mt-1" />}
                   <div className="flex-1">
-                    <p className="text-sm whitespace-pre-wrap break-words">{m.content}</p>
+                    <div className="text-sm whitespace-pre-wrap wrap-break-word">
+                      {m.type === 'assistant' ? (
+                        <div className="prose max-w-none dark:prose-invert">
+                          <ReactMarkdown
+                            components={{
+                              code: (props: any) => {
+                                const { inline, className, children, ...rest } = props
+                                const match = /language-(\w+)/.exec(className || '')
+                                return !inline && match ? (
+                                  <SyntaxHighlighter style={atomDark} language={match[1]} PreTag="div" {...rest}>
+                                    {String(children).replace(/\n$/, '')}
+                                  </SyntaxHighlighter>
+                                ) : (
+                                  <code className={String(className)} {...rest}>
+                                    {children}
+                                  </code>
+                                )
+                              }
+                            }}
+                          >{m.content}</ReactMarkdown>
+
+                          {/* Controls: view full / copy */}
+                          <div className="mt-2 flex gap-2 justify-end">
+                            <button
+                              type="button"
+                              onClick={() => { setModalMessage(m); setModalOpen(true) }}
+                              className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded bg-gray-200 hover:bg-gray-300"
+                              aria-label="View full response"
+                            >
+                              <Maximize2 className="w-3 h-3" /> View
+                            </button>
+                            <button
+                              type="button"
+                              onClick={async () => { await navigator.clipboard.writeText(m.content) }}
+                              className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded bg-gray-200 hover:bg-gray-300"
+                              aria-label="Copy response"
+                            >
+                              <Copy className="w-3 h-3" /> Copy
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="prose max-w-none dark:prose-invert whitespace-pre-wrap wrap-break-word">{m.content}</div>
+                      )}
+                    </div>
                     <div className="flex items-center gap-2 mt-2">
                       <span className="text-xs opacity-70">{formatTime(m.timestamp)}</span>
                       {m.category && m.type === 'assistant' && (
@@ -392,7 +505,7 @@ export default function AIChatAssistant({ initialOpen = false }: { initialOpen?:
               <div className="flex flex-wrap gap-2">
                 {attached.map((f, i) => (
                   <div key={i} className="flex items-center gap-2 border rounded-md px-2 py-1 text-xs bg-gray-50">
-                    <span className="max-w-[160px] truncate">{f.name}</span>
+                    <span className="max-w-40 truncate">{f.name}</span>
                     <button
                       onClick={() => removeFile(i)}
                       className="text-gray-500 hover:text-red-600"
@@ -413,6 +526,41 @@ export default function AIChatAssistant({ initialOpen = false }: { initialOpen?:
       </div>
 
       {/* Input */}
+      {/* Full-response modal */}
+      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
+        <DialogContent className="max-w-3xl" showCloseButton={false}>
+          <DialogTitle>Full assistant response</DialogTitle>
+          <DialogDescription>Full formatted output from the assistant. You can copy or close.</DialogDescription>
+          {/* custom larger close button */}
+          <button
+            onClick={() => setModalOpen(false)}
+            aria-label="Close modal"
+            className="absolute top-3 right-3 inline-flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 p-2"
+          >
+            <X className="w-5 h-5" />
+          </button>
+          <div className="mt-4 max-h-[60vh] overflow-auto">
+            {modalMessage ? (
+              <div className="prose max-w-none dark:prose-invert">
+                <ReactMarkdown>{modalMessage.content}</ReactMarkdown>
+                <div className="mt-4">
+                  <div className="text-xs text-muted-foreground mb-2">Raw text (unchanged):</div>
+                  <pre className="text-sm bg-gray-50 p-3 rounded overflow-auto whitespace-pre-wrap">{modalMessage.content}</pre>
+                </div>
+              </div>
+            ) : null}
+          </div>
+          <div className="mt-4 flex justify-end gap-2">
+            <button
+              className="inline-flex items-center gap-2 px-3 py-1 rounded bg-gray-200 hover:bg-gray-300"
+              onClick={async () => { if (modalMessage) await navigator.clipboard.writeText(modalMessage.content) }}
+            >
+              <Copy className="w-4 h-4" /> Copy
+            </button>
+            <button className="inline-flex items-center gap-2 px-3 py-1 rounded bg-blue-600 text-white" onClick={() => setModalOpen(false)}>Close</button>
+          </div>
+        </DialogContent>
+      </Dialog>
       <div className="p-4 border-t">
         <div className="flex gap-2 items-center">
           {/* Attach button */}

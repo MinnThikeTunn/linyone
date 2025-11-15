@@ -13,7 +13,7 @@ export interface ChatResult {
 }
 
 // Direct Gemini API
-const GEMINI_API_KEY = process.env.NEXT_PUBLIC_GEMINI_API_KEY1 || ''
+const GEMINI_API_KEY = 'AIzaSyBgwP7H8UYuzr5PbsHOX9atJ_XQ9L10RiY'
 const GEMINI_MODEL = 'gemini-2.5-flash'
 
 // System prompts for different assistants
@@ -50,13 +50,32 @@ export async function askChat(
     // Build Gemini API request body
     // Gemini uses a different format - combine system + user message
     const fullPrompt = `${systemPrompt}\n\nUser: ${message}`
-    
+    // If files are provided, encode them as data URLs and include inline in the prompt.
+    // This keeps everything client-side (no DB). Be mindful of size limits.
+    const fileParts: Array<string> = []
+    if (files && files.length > 0) {
+      for (const f of files) {
+        try {
+          const dataUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onload = () => resolve(String(reader.result))
+            reader.onerror = () => reject(new Error('file-read-error'))
+            reader.readAsDataURL(f)
+          })
+          // Add a short descriptor plus the data URL so Gemini receives the image inline.
+          fileParts.push(`Attached file: ${f.name} (${f.type})\nDataURL: ${dataUrl}`)
+        } catch (e) {
+          console.warn('[chat.ts] failed reading file', f.name, e)
+        }
+      }
+    }
+
     const requestBody = {
       contents: [
         {
           parts: [
             {
-              text: fullPrompt
+              text: fileParts.length > 0 ? `${fullPrompt}\n\n${fileParts.join('\n\n')}` : fullPrompt
             }
           ]
         }
@@ -65,11 +84,6 @@ export async function askChat(
         temperature: assistant === 'mental' ? 0.5 : 0.7,
         maxOutputTokens: 512,
       }
-    }
-
-    // Note: File uploads are not supported in direct Gemini integration
-    if (files && files.length > 0) {
-      console.warn('[chat.ts] File uploads not supported with direct Gemini integration')
     }
 
     const res = await fetch(
