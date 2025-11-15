@@ -2044,12 +2044,7 @@ export function Navigation() {
                   <span className="text-xs">{language === 'en' ? 'EN' : 'မြန်'}</span>
                 </Button>
                 
-                <Button variant="ghost" size="sm" asChild>
-                  <Link href="/chat" onClick={() => setMobileMenuOpen(false)}>
-                    <MessageCircle className="w-4 h-4 mr-1" />
-                    <span className="text-xs">{t('nav.aiChat')}</span>
-                  </Link>
-                </Button>
+                {/* AI Chat nav item removed from mobile menu per design */}
 
                 {/* Show login/register when not authenticated */}
                 {!isAuthenticated && (

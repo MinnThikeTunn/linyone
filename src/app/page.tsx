@@ -1773,7 +1773,7 @@ export default function HomePage() {
           {/* Side Panel */}
           <div className="space-y-6 mt-[50px] sm:mt-0">
             {/* Quick Stats */}
-            <Card>
+            <Card className="sm:mt-0 mt-[100px]">
               <CardHeader>
                 <CardTitle className="text-lg">Quick Stats</CardTitle>
               </CardHeader>

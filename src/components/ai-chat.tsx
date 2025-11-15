@@ -354,7 +354,7 @@ export default function AIChatAssistant({ initialOpen = false }: { initialOpen?:
   if (!isOpen) {
     return (
       <div className="fixed bottom-3 right-3 sm:bottom-4 sm:right-4 z-9999 pointer-events-auto">
-        <Button onClick={() => setIsOpen(true)} className={`${buttonColor} text-white rounded-full p-4 sm:p-5 shadow-lg`} aria-label="Open Assistant">
+        <Button onClick={() => setIsOpen(true)} className={`${buttonColor} text-white rounded-full p-4 sm:p-5 shadow-lg transform scale-150`} aria-label="Open Assistant">
           <MessageCircle className="w-7 h-7 sm:w-8 sm:h-8" />
         </Button>
       </div>
