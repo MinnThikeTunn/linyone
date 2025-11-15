@@ -153,27 +153,40 @@ export default function HomePage() {
   const [availableItems, setAvailableItems] = useState<Item[]>([]);
   const [selectedItems, setSelectedItems] = useState<Map<string, number>>(new Map());
   
-  const [emergencyKitItems, setEmergencyKitItems] = useState<Record<string, boolean>>({
-    water: false,
-    food: false,
-    flashlight: false,
-    firstAid: false,
-    batteries: false,
-    radio: false,
-    whistle: false,
-    dustMask: false,
-    plasticSheeting: false,
-    ductTape: false,
-    canOpener: false,
-    localMaps: false,
-    cellPhone: false,
-    charger: false,
-    cash: false,
-    importantDocuments: false,
-    warmClothing: false,
-    blankets: false,
-    tools: false,
-    sanitation: false,
+  const [emergencyKitItems, setEmergencyKitItems] = useState<Record<string, boolean>>(() => {
+    // Load from localStorage if available
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('emergencyKitItems')
+      if (stored) {
+        try {
+          return JSON.parse(stored)
+        } catch (e) {
+          console.error('Failed to parse emergency kit items:', e)
+        }
+      }
+    }
+    return {
+      water: false,
+      food: false,
+      flashlight: false,
+      firstAid: false,
+      batteries: false,
+      radio: false,
+      whistle: false,
+      dustMask: false,
+      plasticSheeting: false,
+      ductTape: false,
+      canOpener: false,
+      localMaps: false,
+      cellPhone: false,
+      charger: false,
+      cash: false,
+      importantDocuments: false,
+      warmClothing: false,
+      blankets: false,
+      tools: false,
+      sanitation: false,
+    }
   });
 
   // Mapbox map reference
@@ -1894,9 +1907,12 @@ export default function HomePage() {
                       <Checkbox
                         id={id}
                         checked={emergencyKitItems[id] || false}
-                        onCheckedChange={(checked) =>
-                          setEmergencyKitItems(prev => ({ ...prev, [id]: checked as boolean }))
-                        }
+                        onCheckedChange={(checked) => {
+                          const updated = { ...emergencyKitItems, [id]: checked as boolean }
+                          setEmergencyKitItems(updated)
+                          // Save to localStorage
+                          localStorage.setItem('emergencyKitItems', JSON.stringify(updated))
+                        }}
                       />
                       <Label htmlFor={id} className="text-sm font-normal cursor-pointer">
                         {label}
