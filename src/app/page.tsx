@@ -1350,14 +1350,13 @@ export default function HomePage() {
           <div className="lg:col-span-2">
             {/* Header */}
             <div className="max-w-7xl mx-auto pb-4">
-              <div className={`flex items-center gap-2 w-full `}>
+              <div className={`flex flex-col sm:flex-row items-center gap-2 w-full`}>
                 <Button
                   variant="outline"
                   size={isUserTracker ? "sm" : "default"}
                   onClick={handleGetCurrentLocation}
                   disabled={isGettingLocation}
-                  className={`flex items-center lg:gap-2 ${isUserTracker ? "" : "flex-1 h-12"}`}
-                  style={isUserTracker ? { flex: "1" } : {}}
+                  className={`flex items-center lg:gap-2 w-full sm:flex-1 ${isUserTracker ? "" : "h-12 sm:h-10"}`}
                 >
                   <Navigation className="w-5 h-5" />
                   {t("map.currentLocation")}
@@ -1368,8 +1367,7 @@ export default function HomePage() {
                     variant="outline"
                     size="sm"
                     onClick={handleConfirmPinClick}
-                    className="flex items-center lg:gap-2 bg-green-600 text-white hover:bg-green-700"
-                    style={{ flex: "1" }}
+                    className="flex items-center lg:gap-2 bg-green-600 text-white hover:bg-green-700 w-full sm:flex-1 h-10"
                   >
                     <Check className="w-5 h-5" />
                     Confirm Pin
@@ -1395,16 +1393,16 @@ export default function HomePage() {
                     <DialogTrigger asChild>
                       <Button
                         size={isUserTracker ? "sm" : "default"}
-                        className={`flex items-center gap-2 bg-black ${isUserTracker ? "w-1/2" : "flex-1 h-12"}`}
+                        className={`flex items-center gap-2 bg-black w-full sm:flex-1 ${isUserTracker ? "h-10" : "h-12 sm:h-10"}`}
                       >
                         <Plus className="w-4 h-4" />
                         {t("map.addPin")}
                       </Button>
                     </DialogTrigger>
                   )}
-                  <DialogContent className="sm:max-w-md max-h-[85vh] overflow-y-auto my-6">
+                  <DialogContent className="w-[95vw] sm:max-w-md max-h-[85vh] overflow-y-auto my-6 p-4 sm:p-6">
                     <DialogHeader>
-                      <DialogTitle>{t("map.title")}</DialogTitle>
+                      <DialogTitle className="text-lg sm:text-xl">{t("map.title")}</DialogTitle>
                     </DialogHeader>
                     <div className="space-y-4">
                       <div>
@@ -2025,7 +2023,7 @@ export default function HomePage() {
       {/* Pin List Dialog for Tracker Volunteers */}
       {isUserTracker && (
         <Dialog open={showPinListDialog} onOpenChange={setShowPinListDialog}>
-          <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogContent className="w-[95vw] sm:max-w-2xl max-h-[80vh] overflow-y-auto p-4 sm:p-6">
             <DialogHeader>
               <DialogTitle>Nearby Unconfirmed Pins</DialogTitle>
             </DialogHeader>
@@ -2042,7 +2040,7 @@ export default function HomePage() {
                     onClick={() => handleSelectPinToConfirm(pin)}
                   >
                     <CardContent className="p-4">
-                      <div className="flex items-start justify-between">
+                      <div className="space-y-3">
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-2">
                             {pin.type === "damaged" ? (
@@ -2052,14 +2050,14 @@ export default function HomePage() {
                             )}
                             <span className="font-medium">{pin.type === "damaged" ? "Damaged Location" : "Safe Zone"}</span>
                           </div>
-                          <p className="text-sm text-gray-600 mb-2">{pin.description}</p>
-                          <div className="flex items-center gap-4 text-xs text-gray-500">
-                            <span>Phone: {pin.phone}</span>
-                            <span>Reporter: {pin.createdBy}</span>
-                            <span>{pin.createdAt.toLocaleString()}</span>
+                          <p className="text-sm text-gray-600 mb-2 break-words">{pin.description}</p>
+                          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-4 text-xs text-gray-500 flex-wrap">
+                            <span className="whitespace-nowrap">Phone: {pin.phone}</span>
+                            <span className="whitespace-nowrap">Reporter: {pin.createdBy}</span>
+                            <span className="whitespace-nowrap">{pin.createdAt.toLocaleString()}</span>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                           <Button
                             size="sm"
                             variant="default"
@@ -2067,6 +2065,7 @@ export default function HomePage() {
                               e.stopPropagation();
                               showRouteToPin(pin);
                             }}
+                            className="w-full sm:w-auto"
                           >
                             <Navigation className="w-3 h-3 mr-1" /> Route
                           </Button>
@@ -2078,11 +2077,12 @@ export default function HomePage() {
                                 e.stopPropagation();
                                 clearRoute();
                               }}
+                              className="w-full sm:w-auto"
                             >
                               Clear
                             </Button>
                           )}
-                          <Button size="sm" variant="outline">
+                          <Button size="sm" variant="outline" className="w-full sm:w-auto">
                             Select
                           </Button>
                         </div>
@@ -2099,18 +2099,18 @@ export default function HomePage() {
       {/* Confirm Pin Dialog */}
       {isUserTracker && pinToConfirm && (
         <Dialog open={showConfirmPinDialog} onOpenChange={setShowConfirmPinDialog}>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto my-6">
-            <DialogHeader>
-              <DialogTitle>Confirm Pin Details</DialogTitle>
+          <DialogContent className="w-[95vw] sm:max-w-2xl max-h-[90vh] overflow-y-auto p-4 sm:p-6 my-6">
+            <DialogHeader className="pb-2">
+              <DialogTitle className="text-lg sm:text-xl">Confirm Pin Details</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
               {/* Action Buttons */}
-              <div className="flex gap-2 justify-end">
+              <div className="flex gap-2 justify-end flex-wrap">
                 <Button
                   size="sm"
                   variant="default"
                   onClick={() => pinToConfirm && showRouteToPin(pinToConfirm)}
-                  className="bg-indigo-600 hover:bg-indigo-700"
+                  className="bg-indigo-600 hover:bg-indigo-700 text-xs sm:text-sm"
                 >
                   <Navigation className="w-3 h-3 mr-1" /> Show Route
                 </Button>
@@ -2119,6 +2119,7 @@ export default function HomePage() {
                     size="sm"
                     variant="outline"
                     onClick={() => clearRoute()}
+                    className="text-xs sm:text-sm"
                   >
                     Clear Route
                   </Button>
@@ -2134,9 +2135,9 @@ export default function HomePage() {
                   <h3 className="font-semibold text-gray-800">Report Details</h3>
                 </div>
 
-                <div className="grid gap-4">
+                <div className="grid gap-3 sm:gap-4">
                   {/* Phone */}
-                  <div className="flex items-start gap-3 p-3 bg-white rounded-lg border border-gray-200">
+                  <div className="flex flex-col sm:flex-row items-start gap-3 p-3 bg-white rounded-lg border border-gray-200">
                     <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center shrink-0">
                       <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
@@ -2212,7 +2213,7 @@ export default function HomePage() {
                       </div>
                       <span className="text-xs font-medium text-gray-500">Attached Photo</span>
                     </div>
-                    <div className="w-full h-56 bg-gray-100 rounded-xl overflow-hidden border-2 border-gray-200 shadow-md">
+                    <div className="w-full h-40 sm:h-56 bg-gray-100 rounded-xl overflow-hidden border-2 border-gray-200 shadow-md">
                       <img
                         src={pinToConfirm.image}
                         alt="Reported photo"
@@ -2234,14 +2235,8 @@ export default function HomePage() {
                   {!aiLoadingConfirm && aiSuggestConfirm && (
                     <div className="rounded-xl overflow-hidden shadow-sm border border-gray-200">
                       {/* Header with gradient */}
-                      <div className={`p-4 ${
-                        aiSuggestConfirm.severity >= 0.8
-                          ? "bg-linear-to-r from-red-500 to-red-600"
-                          : aiSuggestConfirm.severity >= 0.5
-                          ? "bg-linear-to-r from-yellow-500 to-orange-500"
-                          : "bg-linear-to-r from-green-500 to-emerald-600"
-                      }`}>
-                        <div className="flex items-center justify-between text-white">
+                      <div className={`p-3 sm:p-4 ${aiSuggestConfirm.severity >= 0.8 ? "bg-red-600" : aiSuggestConfirm.severity >= 0.5 ? "bg-yellow-500" : "bg-green-600"}`}>
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-0 text-white">
                           <div className="flex items-center gap-2">
                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
