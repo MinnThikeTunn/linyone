@@ -716,8 +716,8 @@ export default function OrganizationPage() {
     }
   }
 
-  const activeVolunteers = volunteers.filter(v => v.status === 'active').length
-  const pendingVolunteers = volunteers.filter(v => v.status === 'pending').length
+  const activeVolunteers = volunteers.filter(v => v.type === 'normal').length
+  const pendingVolunteers = volunteers.filter(v => v.type === 'tracking').length
   const pendingRequests = helpRequests.filter(r => r.status === 'pending' || r.status === 'partially_accepted').length
   const activeCollaborations = partnerOrgs.filter(o => o.status === 'active').length
   
@@ -754,7 +754,7 @@ export default function OrganizationPage() {
             <CardContent className="p-4 sm:p-6">
               <div className="flex items-center justify-between gap-2 sm:gap-4">
                 <div className="min-w-0">
-                  <p className="text-xs sm:text-sm font-medium text-gray-600 truncate">Active Volunteers</p>
+                  <p className="text-xs sm:text-sm font-medium text-gray-600 truncate">Normal Volunteers</p>
                   <p className="text-xl sm:text-2xl font-bold text-green-600">{activeVolunteers}</p>
                 </div>
                 <Users className="w-6 sm:w-8 h-6 sm:h-8 text-green-600 shrink-0" />
@@ -766,7 +766,7 @@ export default function OrganizationPage() {
             <CardContent className="p-4 sm:p-6">
               <div className="flex items-center justify-between gap-2 sm:gap-4">
                 <div className="min-w-0">
-                  <p className="text-xs sm:text-sm font-medium text-gray-600 truncate">Pending Approval</p>
+                  <p className="text-xs sm:text-sm font-medium text-gray-600 truncate">Tracking Volunteers</p>
                   <p className="text-xl sm:text-2xl font-bold text-yellow-600">{pendingVolunteers}</p>
                 </div>
                 <Clock className="w-6 sm:w-8 h-6 sm:h-8 text-yellow-600 shrink-0" />

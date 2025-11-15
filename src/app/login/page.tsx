@@ -11,12 +11,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { 
-  LogIn, 
-  UserPlus, 
-  Shield, 
-  Users, 
-  Building, 
-  AlertTriangle,
+  LogIn,
   Eye,
   EyeOff
 } from 'lucide-react'
@@ -67,9 +62,11 @@ export default function LoginPage() {
         {/* Logo and Title */}
         <div className="text-center mb-8">
           <div className="flex items-center justify-center mb-4">
-            <div className="w-12 h-12 bg-blue-600 rounded-lg flex items-center justify-center">
-              <AlertTriangle className="w-8 h-8 text-white" />
-            </div>
+            <img 
+              src="/linyone.svg" 
+              alt="Lin Yone Tech" 
+              className="h-12 w-auto"
+            />
           </div>
           <h1 className="text-2xl font-bold text-gray-900">Lin Yone Tech</h1>
           <p className="text-gray-600">{t('auth.login')}</p>
@@ -172,31 +169,6 @@ export default function LoginPage() {
                   {t('auth.register')}
                 </Link>
               </p>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Demo Accounts */}
-        <Card className="mt-6">
-          <CardHeader>
-            <CardTitle className="text-sm">Demo Accounts</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2 text-sm">
-              <div className="p-2 bg-gray-50 rounded">
-                <div className="font-medium">Admin</div>
-                <div className="text-gray-600">Username: admin</div>
-                <div className="text-gray-600">Password: admin123</div>
-              </div>
-              <div className="p-2 bg-gray-50 rounded">
-                <div className="font-medium">Organization</div>
-                <div className="text-gray-600">Username: orgA</div>
-                <div className="text-gray-600">Password: org123</div>
-              </div>
-              <div className="p-2 bg-blue-50 rounded">
-                <div className="font-medium">Test User</div>
-                <div className="text-gray-600">Use any email and password</div>
-              </div>
             </div>
           </CardContent>
         </Card>

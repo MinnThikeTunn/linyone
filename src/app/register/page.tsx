@@ -11,11 +11,9 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { 
-  UserPlus, 
-  AlertTriangle,
+  UserPlus,
   Eye,
-  EyeOff,
-  Heart
+  EyeOff
 } from 'lucide-react'
 import { useLanguage } from '@/hooks/use-language'
 import { useAuth } from '@/hooks/use-auth'
@@ -105,9 +103,11 @@ export default function RegisterPage() {
         {/* Logo and Title */}
         <div className="text-center mb-8">
           <div className="flex items-center justify-center mb-4">
-            <div className="w-12 h-12 bg-blue-600 rounded-lg flex items-center justify-center">
-              <AlertTriangle className="w-8 h-8 text-white" />
-            </div>
+            <img 
+              src="/linyone.svg" 
+              alt="Lin Yone Tech" 
+              className="h-12 w-auto"
+            />
           </div>
           <h1 className="text-2xl font-bold text-gray-900">Lin Yone Tech</h1>
           <p className="text-gray-600">{t('auth.register')}</p>
