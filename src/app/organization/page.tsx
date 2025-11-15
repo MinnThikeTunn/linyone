@@ -749,51 +749,67 @@ export default function OrganizationPage() {
         </div>
 
         {/* Quick Stats */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 lg:gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 md:gap-6 mb-8">
           <Card>
-            <CardContent className="p-4 sm:p-6">
-              <div className="flex items-center justify-between gap-2 sm:gap-4">
-                <div className="min-w-0">
-                  <p className="text-xs sm:text-sm font-medium text-gray-600 truncate">Normal Volunteers</p>
-                  <p className="text-xl sm:text-2xl font-bold text-green-600">{activeVolunteers}</p>
+            <CardContent className="p-4 md:p-6">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs md:text-sm font-medium text-gray-600 truncate">
+                    Normal Volunteers
+                  </p>
+                  <p className="text-lg md:text-2xl font-bold text-green-600">
+                    {activeVolunteers}
+                  </p>
                 </div>
-                <Users className="w-6 sm:w-8 h-6 sm:h-8 text-green-600 shrink-0" />
+                <Users className="w-6 md:w-8 h-6 md:h-8 text-green-600 shrink-0" />
               </div>
             </CardContent>
           </Card>
 
           <Card>
-            <CardContent className="p-4 sm:p-6">
-              <div className="flex items-center justify-between gap-2 sm:gap-4">
-                <div className="min-w-0">
-                  <p className="text-xs sm:text-sm font-medium text-gray-600 truncate">Tracking Volunteers</p>
-                  <p className="text-xl sm:text-2xl font-bold text-yellow-600">{pendingVolunteers}</p>
+            <CardContent className="p-4 md:p-6">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs md:text-sm font-medium text-gray-600 truncate">
+                    Tracking Volunteers
+                  </p>
+                  <p className="text-lg md:text-2xl font-bold text-yellow-600">
+                    {pendingVolunteers}
+                  </p>
                 </div>
-                <Clock className="w-6 sm:w-8 h-6 sm:h-8 text-yellow-600 shrink-0" />
+                <Clock className="w-6 md:w-8 h-6 md:h-8 text-yellow-600 shrink-0" />
               </div>
             </CardContent>
           </Card>
 
           <Card>
-            <CardContent className="p-4 sm:p-6">
-              <div className="flex items-center justify-between gap-2 sm:gap-4">
-                <div className="min-w-0">
-                  <p className="text-xs sm:text-sm font-medium text-gray-600 truncate">Help Requests</p>
-                  <p className="text-xl sm:text-2xl font-bold text-orange-600">{pendingRequests}</p>
+            <CardContent className="p-4 md:p-6">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs md:text-sm font-medium text-gray-600 truncate">
+                    Help Requests
+                  </p>
+                  <p className="text-lg md:text-2xl font-bold text-orange-600">
+                    {pendingRequests}
+                  </p>
                 </div>
-                <AlertTriangle className="w-6 sm:w-8 h-6 sm:h-8 text-orange-600 shrink-0" />
+                <AlertTriangle className="w-6 md:w-8 h-6 md:h-8 text-orange-600 shrink-0" />
               </div>
             </CardContent>
           </Card>
 
           <Card>
-            <CardContent className="p-4 sm:p-6">
-              <div className="flex items-center justify-between gap-2 sm:gap-4">
-                <div className="min-w-0">
-                  <p className="text-xs sm:text-sm font-medium text-gray-600 truncate">Partnerships</p>
-                  <p className="text-xl sm:text-2xl font-bold text-purple-600">{activeCollaborations}</p>
+            <CardContent className="p-4 md:p-6">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs md:text-sm font-medium text-gray-600 truncate">
+                    Partnerships
+                  </p>
+                  <p className="text-lg md:text-2xl font-bold text-purple-600">
+                    {activeCollaborations}
+                  </p>
                 </div>
-                <Handshake className="w-6 sm:w-8 h-6 sm:h-8 text-purple-600 shrink-0" />
+                <Handshake className="w-6 md:w-8 h-6 md:h-8 text-purple-600 shrink-0" />
               </div>
             </CardContent>
           </Card>

@@ -516,17 +516,20 @@ export default function DashboardPage() {
 
         <Tabs defaultValue="family" className="space-y-6">
           <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="family" className="flex items-center gap-2">
+            <TabsTrigger value="family" className="flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm">
               <Users className="w-4 h-4" />
-              {t("dashboard.familyMembers")}
+              <span className="hidden sm:inline">{t("dashboard.familyMembers")}</span>
+              <span className="sm:hidden">Family</span>
             </TabsTrigger>
-            <TabsTrigger value="safety" className="flex items-center gap-2">
+            <TabsTrigger value="safety" className="flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm">
               <Shield className="w-4 h-4" />
-              {t("dashboard.safetyModules")}
+              <span className="hidden sm:inline">{t("dashboard.safetyModules")}</span>
+              <span className="sm:hidden">Safety</span>
             </TabsTrigger>
-            <TabsTrigger value="alerts" className="flex items-center gap-2">
+            <TabsTrigger value="alerts" className="flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm">
               <AlertTriangle className="w-4 h-4" />
-              {t("dashboard.recentAlerts")}
+              <span className="hidden sm:inline">{t("dashboard.recentAlerts")}</span>
+              <span className="sm:hidden">Alerts</span>
             </TabsTrigger>
           </TabsList>
 
@@ -566,7 +569,7 @@ export default function DashboardPage() {
               </CardHeader>
 
               <CardContent>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 ">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   {safetyModules.map((module) => (
                     <Card key={module.id}>
                       <CardContent className="p-4">
