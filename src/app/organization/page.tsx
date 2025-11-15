@@ -1059,7 +1059,7 @@ export default function OrganizationPage() {
           <TabsContent value="volunteers" className="space-y-6">
             <Card>
               <CardHeader>
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 sm:gap-0">
                   <div>
                 <CardTitle className="flex items-center gap-2">
                   <Users className="w-5 h-5 text-blue-500" />
@@ -1071,14 +1071,14 @@ export default function OrganizationPage() {
                   </div>
                   <Dialog open={showRegisterVolunteer} onOpenChange={setShowRegisterVolunteer}>
                     <DialogTrigger asChild>
-                      <Button>
+                      <Button className="w-full sm:w-auto">
                         <UserPlus className="w-4 h-4 mr-2" />
                         Register Volunteer
                       </Button>
                     </DialogTrigger>
-                    <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-                      <DialogHeader>
-                        <DialogTitle>{editingVolunteer ? 'Edit Volunteer' : 'Register New Volunteer'}</DialogTitle>
+                    <DialogContent className="w-[95vw] sm:max-w-2xl max-h-[90vh] overflow-y-auto p-4 sm:p-6">
+                      <DialogHeader className="pb-2">
+                        <DialogTitle className="text-lg sm:text-xl">{editingVolunteer ? 'Edit Volunteer' : 'Register New Volunteer'}</DialogTitle>
                       </DialogHeader>
                       <div className="space-y-4">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1128,8 +1128,8 @@ export default function OrganizationPage() {
                             </Select>
                           </div>
                         </div>
-                        <div className="flex gap-2 pt-4 border-t">
-                          <Button onClick={handleRegisterVolunteer} className="flex-1 bg-blue-600 hover:bg-blue-700">
+                        <div className="flex flex-col sm:flex-row gap-2 pt-4 border-t">
+                          <Button onClick={handleRegisterVolunteer} className="flex-1 bg-blue-600 hover:bg-blue-700 text-xs sm:text-sm">
                             {editingVolunteer ? (
                               <>
                                 <Edit className="w-4 h-4 mr-2" />
@@ -1237,7 +1237,7 @@ export default function OrganizationPage() {
           <TabsContent value="supplies" className="space-y-6">
             <Card>
               <CardHeader>
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 sm:gap-0">
                   <div>
                 <CardTitle className="flex items-center gap-2">
                       <Warehouse className="w-5 h-5 text-blue-500" />
@@ -1263,14 +1263,14 @@ export default function OrganizationPage() {
                     }
                   }}>
                     <DialogTrigger asChild>
-                      <Button>
+                      <Button className="w-full sm:w-auto">
                         <Plus className="w-4 h-4 mr-2" />
                         Add Supply
                       </Button>
                     </DialogTrigger>
-                    <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-                      <DialogHeader>
-                        <DialogTitle>{editingSupply ? 'Edit Supply' : 'Add New Supply'}</DialogTitle>
+                    <DialogContent className="w-[95vw] sm:max-w-2xl max-h-[90vh] overflow-y-auto p-4 sm:p-6">
+                      <DialogHeader className="pb-2">
+                        <DialogTitle className="text-lg sm:text-xl">{editingSupply ? 'Edit Supply' : 'Add New Supply'}</DialogTitle>
                       </DialogHeader>
                       <div className="space-y-4">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1724,71 +1724,77 @@ export default function OrganizationPage() {
 
       {/* Accept Request Dialog */}
       <Dialog open={showAcceptDialog} onOpenChange={setShowAcceptDialog}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Accept Help Request</DialogTitle>
+        <DialogContent className="w-[95vw] sm:max-w-2xl max-h-[90vh] flex flex-col p-4 sm:p-6">
+          <DialogHeader className="pb-2 shrink-0">
+            <DialogTitle className="text-lg sm:text-xl">Accept Help Request</DialogTitle>
           </DialogHeader>
           
           {selectedRequest && (
-            <div className="space-y-4">
-              <Alert>
+            <div className="flex-1 overflow-y-auto space-y-4 pr-2">
+              <Alert className="shrink-0">
                 <AlertTriangle className="h-4 w-4" />
                 <AlertDescription>
                   Adjust the quantities you can provide. The remaining quantities will be updated automatically.
                 </AlertDescription>
               </Alert>
 
-              <div>
+              <div className="space-y-3 shrink-0">
                 <h4 className="font-medium mb-3">Required Items</h4>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Category</TableHead>
-                      <TableHead>Unit</TableHead>
-                      <TableHead>Requested</TableHead>
-                      <TableHead>Accepted</TableHead>
-                      <TableHead>Remaining</TableHead>
-                      <TableHead>You Can Provide</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {selectedRequest.requiredItems.map((item, idx) => {
-                      const remaining = item.remainingQty
-                      const requested = item.quantity
-                      const accepted = requested - remaining
-                      const maxQty = remaining
-                      return (
-                        <TableRow key={idx}>
-                          <TableCell className="font-medium">{item.category}</TableCell>
-                          <TableCell>{item.unit}</TableCell>
-                          <TableCell className="text-center font-semibold">{requested}</TableCell>
-                          <TableCell className="text-center text-green-600 font-semibold">{accepted}</TableCell>
-                          <TableCell className="text-center text-orange-600 font-semibold">{remaining}</TableCell>
-                          <TableCell>
-                            <Input
-                              type="number"
-                              min="0"
-                              max={maxQty}
-                              value={acceptQuantities[item.pinItemId] || 0}
-                              onChange={(e) => {
-                                const value = Math.max(0, Math.min(maxQty, parseInt(e.target.value) || 0))
-                                setAcceptQuantities(prev => ({
-                                  ...prev,
-                                  [item.pinItemId]: value
-                                }))
-                              }}
-                              className="w-24"
-                            />
-                            <span className="ml-2 text-sm text-gray-500">/ {maxQty}</span>
-                          </TableCell>
+                <div className="border rounded-lg overflow-hidden">
+                  <div className="overflow-x-auto max-h-64 overflow-y-auto">
+                    <Table>
+                      <TableHeader className="sticky top-0 bg-white z-10">
+                        <TableRow>
+                          <TableHead className="px-4 py-2">Category</TableHead>
+                          <TableHead className="px-4 py-2">Unit</TableHead>
+                          <TableHead className="px-4 py-2 text-center">Requested</TableHead>
+                          <TableHead className="px-4 py-2 text-center">Accepted</TableHead>
+                          <TableHead className="px-4 py-2 text-center">Remaining</TableHead>
+                          <TableHead className="px-4 py-2">You Can Provide</TableHead>
                         </TableRow>
-                      )
-                    })}
-                  </TableBody>
-                </Table>
+                      </TableHeader>
+                      <TableBody>
+                        {selectedRequest.requiredItems.map((item, idx) => {
+                          const remaining = item.remainingQty
+                          const requested = item.quantity
+                          const accepted = requested - remaining
+                          const maxQty = remaining
+                          return (
+                            <TableRow key={idx} className="hover:bg-gray-50">
+                              <TableCell className="font-medium px-4 py-3">{item.category}</TableCell>
+                              <TableCell className="px-4 py-3">{item.unit}</TableCell>
+                              <TableCell className="text-center font-semibold px-4 py-3">{requested}</TableCell>
+                              <TableCell className="text-center text-green-600 font-semibold px-4 py-3">{accepted}</TableCell>
+                              <TableCell className="text-center text-orange-600 font-semibold px-4 py-3">{remaining}</TableCell>
+                              <TableCell className="px-4 py-3">
+                                <div className="flex items-center gap-2">
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    max={maxQty}
+                                    value={acceptQuantities[item.pinItemId] || 0}
+                                    onChange={(e) => {
+                                      const value = Math.max(0, Math.min(maxQty, parseInt(e.target.value) || 0))
+                                      setAcceptQuantities(prev => ({
+                                        ...prev,
+                                        [item.pinItemId]: value
+                                      }))
+                                    }}
+                                    className="w-20 text-center"
+                                  />
+                                  <span className="text-sm text-gray-500 whitespace-nowrap">/ {maxQty}</span>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
               </div>
 
-              <div className="flex gap-2 pt-4 border-t">
+              <div className="flex gap-2 pt-4 border-t shrink-0">
                 <Button 
                   onClick={handleAcceptRequest}
                   className="flex-1"

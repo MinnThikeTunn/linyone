@@ -254,7 +254,7 @@ export default function RegisterPage() {
             <img 
               src="/linyone.svg" 
               alt="Lin Yone Tech" 
-              className="h-12 w-auto"
+              className="h-16 w-auto"
             />
           </div>
           <h1 className="text-2xl font-bold text-gray-900">Lin Yone Tech</h1>
